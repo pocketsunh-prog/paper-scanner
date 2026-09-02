@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Ghibli-inspired palette: warm nature tones -->
+    <color name="primary">#5B8C5A</color>
+    <color name="primary_dark">#4A7A49</color>
+    <color name="primary_light">#A8D5A8</color>
+    <color name="accent">#E8A87C</color>
+    <color name="accent_dark">#D4956B</color>
+    <color name="accent_light">#FDDDA0</color>
+
+    <!-- Warm neutrals -->
+    <color name="white">#FFFDF7</color>
+    <color name="cream">#FFF8E7</color>
+    <color name="warm_gray">#F5F0E8</color>
+    <color name="surface">#FFFBF2</color>
+    <color name="background">#FFF9F0</color>
+
+    <!-- Text -->
+    <color name="text_primary">#3E3A35</color>
+    <color name="text_secondary">#7A7568</color>
+    <color name="text_hint">#B5AFA3</color>
+
+    <!-- Basic -->
+    <color name="black">#FF000000</color>
+
+    <!-- UI elements -->
+    <color name="gray_light">#E8E2D6</color>
+    <color name="gray">#C4BBAF</color>
+    <color name="gray_dark">#9E9589</color>
+    <color name="overlay_bg">#803E3A35</color>
+
+    <!-- Detection colors -->
+    <color name="detected_border">#5B8C5A</color>
+    <color name="detected_fill">#305B8C5A</color>
+    <color name="detecting_border">#E8A87C</color>
+
+    <!-- Status colors -->
+    <color name="success">#5B8C5A</color>
+    <color name="warning">#E8A87C</color>
+    <color name="error">#D4685C</color>
+
+    <!-- Card and sheet backgrounds -->
+    <color name="card_bg">#FFFFFFF2</color>
+    <color name="sheet_bg">#FFFBF2</color>
+</resources>
