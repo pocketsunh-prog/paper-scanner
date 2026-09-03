@@ -7,6 +7,7 @@ import android.util.AttributeSet
 import android.view.View
 import android.view.animation.LinearInterpolator
 import com.paperscanner.processing.DetectionResult
+import kotlin.math.sqrt
 
 class ScannerOverlayView @JvmOverloads constructor(
     context: Context,
@@ -71,6 +72,23 @@ class ScannerOverlayView @JvmOverloads constructor(
     private var detected: Boolean = false
     private var ropePhase = 0f
 
+    // Mode: true = auto, false = manual
+    var autoMode: Boolean = true
+
+    // Manual mode rectangle (normalized 0-1 coordinates)
+    private var manualRectLeft = 0.15f
+    private var manualRectTop = 0.2f
+    private var manualRectRight = 0.85f
+    private var manualRectBottom = 0.7f
+
+    // Tap-to-capture callback
+    var onTapToCapture: (() -> Unit)? = null
+
+    // Manual mode: get the rectangle bounds in normalized coordinates
+    fun getManualRect(): RectF {
+        return RectF(manualRectLeft, manualRectTop, manualRectRight, manualRectBottom)
+    }
+
     private val ropeAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
         duration = 3000L
         repeatCount = ValueAnimator.INFINITE
@@ -83,6 +101,137 @@ class ScannerOverlayView @JvmOverloads constructor(
 
     init {
         ropeAnimator.start()
+        // Handle touch events for tap-to-capture
+        setOnTouchListener { _, event ->
+            if (event.action == android.view.MotionEvent.ACTION_UP) {
+                handleTap(event.x, event.y)
+            }
+            true
+        }
+    }
+
+    private var dragMode = DragMode.NONE
+    private var lastTouchX = 0f
+    private var lastTouchY = 0f
+
+    private enum class DragMode {
+        NONE, MOVE, RESIZE_TL, RESIZE_TR, RESIZE_BL, RESIZE_BR
+    }
+
+    private fun handleTap(x: Float, y: Float) {
+        if (!autoMode) {
+            // In manual mode, tap inside rectangle to capture
+            val w = width.toFloat()
+            val h = height.toFloat()
+            val left = manualRectLeft * w
+            val top = manualRectTop * h
+            val right = manualRectRight * w
+            val bottom = manualRectBottom * h
+            if (x >= left && x <= right && y >= top && y <= bottom) {
+                onTapToCapture?.invoke()
+            }
+            return
+        }
+
+        if (!detected) return
+
+        val bounds = detectionResult?.bounds ?: return
+        val w = width.toFloat()
+        val h = height.toFloat()
+
+        val left = bounds.left * w
+        val top = bounds.top * h
+        val right = bounds.right * w
+        val bottom = bounds.bottom * h
+
+        // Check if tap is inside the detected rectangle
+        if (x >= left && x <= right && y >= top && y <= bottom) {
+            onTapToCapture?.invoke()
+        }
+    }
+
+    override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+        if (!autoMode) {
+            return handleManualTouch(event)
+        }
+        return super.onTouchEvent(event)
+    }
+
+    private fun handleManualTouch(event: android.view.MotionEvent): Boolean {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val x = event.x
+        val y = event.y
+
+        val left = manualRectLeft * w
+        val top = manualRectTop * h
+        val right = manualRectRight * w
+        val bottom = manualRectBottom * h
+        val handleSize = 60f
+
+        when (event.action) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                // Check if touching a corner handle
+                dragMode = when {
+                    nearPoint(x, y, left, top, handleSize) -> DragMode.RESIZE_TL
+                    nearPoint(x, y, right, top, handleSize) -> DragMode.RESIZE_TR
+                    nearPoint(x, y, left, bottom, handleSize) -> DragMode.RESIZE_BL
+                    nearPoint(x, y, right, bottom, handleSize) -> DragMode.RESIZE_BR
+                    x >= left && x <= right && y >= top && y <= bottom -> DragMode.MOVE
+                    else -> DragMode.NONE
+                }
+                lastTouchX = x
+                lastTouchY = y
+            }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                val dx = (x - lastTouchX) / w
+                val dy = (y - lastTouchY) / h
+
+                when (dragMode) {
+                    DragMode.MOVE -> {
+                        manualRectLeft += dx
+                        manualRectRight += dx
+                        manualRectTop += dy
+                        manualRectBottom += dy
+                    }
+                    DragMode.RESIZE_TL -> {
+                        manualRectLeft += dx
+                        manualRectTop += dy
+                    }
+                    DragMode.RESIZE_TR -> {
+                        manualRectRight += dx
+                        manualRectTop += dy
+                    }
+                    DragMode.RESIZE_BL -> {
+                        manualRectLeft += dx
+                        manualRectBottom += dy
+                    }
+                    DragMode.RESIZE_BR -> {
+                        manualRectRight += dx
+                        manualRectBottom += dy
+                    }
+                    DragMode.NONE -> {}
+                }
+
+                // Clamp to valid range
+                manualRectLeft = manualRectLeft.coerceIn(0f, manualRectRight - 0.1f)
+                manualRectTop = manualRectTop.coerceIn(0f, manualRectBottom - 0.1f)
+                manualRectRight = manualRectRight.coerceIn(manualRectLeft + 0.1f, 1f)
+                manualRectBottom = manualRectBottom.coerceIn(manualRectTop + 0.1f, 1f)
+
+                lastTouchX = x
+                lastTouchY = y
+                invalidate()
+            }
+            android.view.MotionEvent.ACTION_UP -> {
+                dragMode = DragMode.NONE
+            }
+        }
+        return true
+    }
+
+    private fun nearPoint(x: Float, y: Float, px: Float, py: Float, threshold: Float): Boolean {
+        return kotlin.math.abs(x - px) < threshold && kotlin.math.abs(y - py) < threshold
     }
 
     fun updateDetection(result: DetectionResult) {
@@ -116,26 +265,36 @@ class ScannerOverlayView @JvmOverloads constructor(
         val h = height.toFloat()
 
         val bounds = detectionResult?.bounds
+        val corners = detectionResult?.corners
 
-        if (bounds != null && detected) {
-            val pad = 12f
-            val left = bounds.left * w
-            val top = bounds.top * h
-            val right = bounds.right * w
-            val bottom = bounds.bottom * h
-
-            // Draw overlay outside document area
-            val path = Path().apply {
-                addRect(0f, 0f, w, top, Path.Direction.CW)
-                addRect(0f, top, left, bottom, Path.Direction.CW)
-                addRect(right, top, w, bottom, Path.Direction.CW)
-                addRect(0f, bottom, w, h, Path.Direction.CW)
+        if (!autoMode) {
+            // MANUAL MODE: Show draggable rectangle
+            drawManualMode(canvas, w, h)
+        } else if (bounds != null && detected) {
+            // AUTO MODE: Show detected document
+            if (corners != null && corners.size == 4) {
+                drawOverlayAroundPolygon(canvas, corners, w, h)
+                val pad = 10f
+                val tl = Pair(corners[0].first * w, corners[0].second * h)
+                val tr = Pair(corners[1].first * w, corners[1].second * h)
+                val br = Pair(corners[2].first * w, corners[2].second * h)
+                val bl = Pair(corners[3].first * w, corners[3].second * h)
+                drawRopeLoopCorners(canvas, tl, tr, br, bl, pad)
+            } else {
+                val left = bounds.left * w
+                val top = bounds.top * h
+                val right = bounds.right * w
+                val bottom = bounds.bottom * h
+                val path = Path().apply {
+                    addRect(0f, 0f, w, top, Path.Direction.CW)
+                    addRect(0f, top, left, bottom, Path.Direction.CW)
+                    addRect(right, top, w, bottom, Path.Direction.CW)
+                    addRect(0f, bottom, w, h, Path.Direction.CW)
+                }
+                canvas.drawPath(path, overlayPaint)
+                val pad = 12f
+                drawRopeLoop(canvas, left - pad, top - pad, right + pad, bottom + pad)
             }
-            canvas.drawPath(path, overlayPaint)
-
-            // Draw rope loop around document
-            drawRopeLoop(canvas, left - pad, top - pad, right + pad, bottom + pad)
-
         } else {
             // Full overlay when no document detected
             canvas.drawRect(0f, 0f, w, h, overlayPaint)
@@ -157,6 +316,172 @@ class ScannerOverlayView @JvmOverloads constructor(
                 drawCornerGuides(canvas, focusLeft, focusTop, focusRight, focusBottom)
             }
         }
+    }
+
+    private fun drawManualMode(canvas: Canvas, w: Float, h: Float) {
+        val left = manualRectLeft * w
+        val top = manualRectTop * h
+        val right = manualRectRight * w
+        val bottom = manualRectBottom * h
+
+        // Draw dark overlay outside the manual rectangle
+        val path = Path().apply {
+            addRect(0f, 0f, w, top, Path.Direction.CW)
+            addRect(0f, top, left, bottom, Path.Direction.CW)
+            addRect(right, top, w, bottom, Path.Direction.CW)
+            addRect(0f, bottom, w, h, Path.Direction.CW)
+        }
+        canvas.drawPath(path, overlayPaint)
+
+        // Draw rope loop around manual rectangle
+        val pad = 8f
+        drawRopeLoop(canvas, left - pad, top - pad, right + pad, bottom + pad)
+
+        // Draw corner handles
+        val handleRadius = 12f
+        canvas.drawCircle(left, top, handleRadius, cornerKnotPaint)
+        canvas.drawCircle(right, top, handleRadius, cornerKnotPaint)
+        canvas.drawCircle(left, bottom, handleRadius, cornerKnotPaint)
+        canvas.drawCircle(right, bottom, handleRadius, cornerKnotPaint)
+    }
+
+    private fun drawOverlayAroundPolygon(canvas: Canvas, corners: List<Pair<Float, Float>>, w: Float, h: Float) {
+        val path = Path()
+        // Start from top-left corner
+        path.moveTo(0f, 0f)
+        path.lineTo(w, 0f)
+        path.lineTo(w, h)
+        path.lineTo(0f, h)
+        path.close()
+
+        // Cut out the document polygon
+        val docPath = Path()
+        docPath.moveTo(corners[0].first * w, corners[0].second * h)
+        for (i in 1 until corners.size) {
+            docPath.lineTo(corners[i].first * w, corners[i].second * h)
+        }
+        docPath.close()
+
+        // Draw overlay with hole using even-odd rule
+        path.op(docPath, Path.Op.XOR)
+        canvas.drawPath(path, overlayPaint)
+    }
+
+    private fun drawRopeLoopCorners(
+        canvas: Canvas,
+        tl: Pair<Float, Float>,
+        tr: Pair<Float, Float>,
+        br: Pair<Float, Float>,
+        bl: Pair<Float, Float>,
+        pad: Float
+    ) {
+        val ropeWave = 3f
+        val ropeSegments = 40
+
+        // Draw glow first
+        drawWavyQuad(canvas, tl, tr, br, bl, ropeGlowPaint, ropeWave, ropeSegments, pad)
+        // Draw main rope
+        drawWavyQuad(canvas, tl, tr, br, bl, ropePaint, ropeWave, ropeSegments, pad)
+
+        // Draw corner knots
+        val knotRadius = 8f
+        cornerKnotPaint.color = Color.parseColor("#5B8C5A")
+        canvas.drawCircle(tl.first, tl.second, knotRadius, cornerKnotPaint)
+        canvas.drawCircle(tr.first, tr.second, knotRadius, cornerKnotPaint)
+        canvas.drawCircle(br.first, br.second, knotRadius, cornerKnotPaint)
+        canvas.drawCircle(bl.first, bl.second, knotRadius, cornerKnotPaint)
+
+        // Draw small decorative knots
+        val perimeter = (distance(tl, tr) + distance(tr, br) + distance(br, bl) + distance(bl, tl))
+        val knotSpacing = perimeter / 6f
+        for (i in 0 until 6) {
+            val dist = (i * knotSpacing + ropePhase * knotSpacing) % perimeter
+            val (kx, ky) = getPointOnQuadPerimeter(tl, tr, br, bl, dist)
+            canvas.drawCircle(kx, ky, 3.5f, knotPaint)
+        }
+    }
+
+    private fun drawWavyQuad(
+        canvas: Canvas,
+        tl: Pair<Float, Float>,
+        tr: Pair<Float, Float>,
+        br: Pair<Float, Float>,
+        bl: Pair<Float, Float>,
+        paint: Paint,
+        amplitude: Float,
+        segments: Int,
+        pad: Float
+    ) {
+        val path = Path()
+        val totalPerimeter = distance(tl, tr) + distance(tr, br) + distance(br, bl) + distance(bl, tl)
+        val segLen = totalPerimeter / segments
+
+        for (i in 0..segments) {
+            val dist = i * segLen
+            val (bx, by) = getPointOnQuadPerimeter(tl, tr, br, bl, dist)
+            val (nx, ny) = getNormalOnQuadPerimeter(tl, tr, br, bl, dist)
+
+            val angle = ((dist / totalPerimeter * 6.28f * 3f) + ropePhase * 6.28f).toDouble()
+            val wave = Math.sin(angle).toFloat() * amplitude
+            val px = bx + nx * (wave + pad)
+            val py = by + ny * (wave + pad)
+
+            if (i == 0) path.moveTo(px, py)
+            else path.lineTo(px, py)
+        }
+
+        canvas.drawPath(path, paint)
+    }
+
+    private fun getPointOnQuadPerimeter(tl: Pair<Float, Float>, tr: Pair<Float, Float>, br: Pair<Float, Float>, bl: Pair<Float, Float>, dist: Float): Pair<Float, Float> {
+        val edges = listOf(
+            Pair(tl, tr), Pair(tr, br), Pair(br, bl), Pair(bl, tl)
+        )
+        var remaining = dist
+        for ((start, end) in edges) {
+            val edgeLen = distance(start, end)
+            if (remaining <= edgeLen) {
+                val t = remaining / edgeLen
+                return Pair(
+                    start.first + (end.first - start.first) * t,
+                    start.second + (end.second - start.second) * t
+                )
+            }
+            remaining -= edgeLen
+        }
+        return tl
+    }
+
+    private fun getNormalOnQuadPerimeter(tl: Pair<Float, Float>, tr: Pair<Float, Float>, br: Pair<Float, Float>, bl: Pair<Float, Float>, dist: Float): Pair<Float, Float> {
+        val edges = listOf(
+            Pair(tl, tr), Pair(tr, br), Pair(br, bl), Pair(bl, tl)
+        )
+        var remaining = dist
+        for ((start, end) in edges) {
+            val edgeLen = distance(start, end)
+            if (remaining <= edgeLen) {
+                val dx = end.first - start.first
+                val dy = end.second - start.second
+                val len = distance(start, end)
+                if (len == 0f) return Pair(0f, -1f)
+                // Normal pointing outward (away from center)
+                val cx = (tl.first + tr.first + br.first + bl.first) / 4
+                val cy = (tl.second + tr.second + br.second + bl.second) / 4
+                val mx = (start.first + end.first) / 2
+                val my = (start.second + end.second) / 2
+                val nx = mx - cx
+                val ny = my - cy
+                val nLen = sqrt(nx * nx + ny * ny)
+                if (nLen == 0f) return Pair(0f, -1f)
+                return Pair(nx / nLen, ny / nLen)
+            }
+            remaining -= edgeLen
+        }
+        return Pair(0f, -1f)
+    }
+
+    private fun distance(a: Pair<Float, Float>, b: Pair<Float, Float>): Float {
+        return sqrt((a.first - b.first) * (a.first - b.first) + (a.second - b.second) * (a.second - b.second))
     }
 
     private fun drawRopeLoop(canvas: Canvas, left: Float, top: Float, right: Float, bottom: Float) {

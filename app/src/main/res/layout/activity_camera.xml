@@ -44,7 +44,7 @@
         android:layout_margin="16dp"
         android:background="@drawable/circle_button_bg"
         android:contentDescription="@string/flash"
-        android:src="@android:drawable/ic_menu_camera"
+        android:src="@drawable/ic_flash"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
@@ -118,5 +118,81 @@
             android:textSize="11sp" />
 
     </LinearLayout>
+
+    <!-- Zoom controls -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageButton
+            android:id="@+id/btn_zoom_in"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/circle_button_bg"
+            android:contentDescription="Zoom In"
+            android:src="@drawable/ic_zoom_in"
+            app:tint="@color/white" />
+
+        <TextView
+            android:id="@+id/tv_zoom_level"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginVertical="4dp"
+            android:text="1.0x"
+            android:textColor="@color/white"
+            android:textSize="12sp" />
+
+        <ImageButton
+            android:id="@+id/btn_zoom_out"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/circle_button_bg"
+            android:contentDescription="Zoom Out"
+            android:src="@drawable/ic_zoom_out"
+            app:tint="@color/white" />
+
+    </LinearLayout>
+
+    <!-- Mode toggle (Auto / Manual) -->
+    <com.google.android.material.button.MaterialButtonToggleGroup
+        android:id="@+id/toggle_mode"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:singleSelection="true"
+        app:selectionRequired="true">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_mode_auto"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Auto"
+            android:textAllCaps="false"
+            android:textSize="12sp"
+            app:backgroundTint="@color/primary"
+            app:cornerRadius="18dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_mode_manual"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Manual"
+            android:textAllCaps="false"
+            android:textSize="12sp"
+            app:backgroundTint="@color/gray_dark"
+            app:cornerRadius="18dp" />
+
+    </com.google.android.material.button.MaterialButtonToggleGroup>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
