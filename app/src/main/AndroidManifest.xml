@@ -30,6 +30,7 @@
         <activity android:name=".ui.CameraActivity" />
         <activity android:name=".ui.ImageEditorActivity" />
         <activity android:name=".ui.SettingsActivity" />
+        <activity android:name=".ui.RealTimeOcrActivity" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

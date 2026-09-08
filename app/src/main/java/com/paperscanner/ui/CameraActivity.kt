@@ -17,6 +17,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.paperscanner.R
 import com.paperscanner.data.AppSettings
 import com.paperscanner.data.ProjectManager
@@ -109,6 +110,12 @@ class CameraActivity : AppCompatActivity() {
         btnAutoCapture.setOnCheckedChangeListener { _, isChecked ->
             autoCaptureEnabled = isChecked
             settings.autoCapture = isChecked
+        }
+
+        // Real-time OCR button
+        val fabRealTimeOcr = findViewById<FloatingActionButton>(R.id.fab_realtime_ocr)
+        fabRealTimeOcr.setOnClickListener {
+            startActivity(android.content.Intent(this, RealTimeOcrActivity::class.java))
         }
 
         // Mode toggle (Auto / Manual)

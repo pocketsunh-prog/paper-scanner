@@ -62,6 +62,10 @@ class ProjectListActivity : AppCompatActivity() {
         findViewById<FloatingActionButton>(R.id.fab_settings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+
+        findViewById<FloatingActionButton>(R.id.fab_ocr).setOnClickListener {
+            startActivity(Intent(this, RealTimeOcrActivity::class.java))
+        }
     }
 
     override fun onResume() {

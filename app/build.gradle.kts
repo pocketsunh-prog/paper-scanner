@@ -76,4 +76,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-mlkit-text-recognition-chinese:16.0.0")
     implementation("com.google.android.gms:play-services-mlkit-text-recognition-japanese:16.0.0")
     implementation("com.google.android.gms:play-services-mlkit-text-recognition-korean:16.0.0")
+
+    // ML Kit Translation
+    implementation("com.google.mlkit:translate:17.0.2")
 }

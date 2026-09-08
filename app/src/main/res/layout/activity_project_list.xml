@@ -73,6 +73,16 @@
         app:tint="@color/white" />
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_ocr"
+        style="@style/Ghibli.FAB.Primary"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_margin="16dp"
+        android:src="@drawable/ic_translate"
+        app:tint="@color/white" />
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fab_add_project"
         style="@style/Ghibli.FAB"
         android:layout_width="wrap_content"
