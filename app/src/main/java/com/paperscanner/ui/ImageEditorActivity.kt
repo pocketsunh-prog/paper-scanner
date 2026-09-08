@@ -13,14 +13,17 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import kotlinx.coroutines.launch
 import com.paperscanner.R
 import com.paperscanner.data.AppSettings
 import com.paperscanner.data.ImageFilterMode
 import com.paperscanner.data.ProjectManager
 import com.paperscanner.data.ScanImage
 import com.paperscanner.processing.ImageFilter
+import com.paperscanner.processing.OcrHelper
 import com.paperscanner.processing.PdfExporter
 import java.io.File
 
@@ -114,6 +117,7 @@ class ImageEditorActivity : AppCompatActivity() {
 
     private fun showImageOptions(scanImage: ScanImage) {
         val options = arrayOf(
+            "OCR (Extract Text)",
             getString(R.string.black_white),
             getString(R.string.grayscale),
             getString(R.string.color),
@@ -127,13 +131,14 @@ class ImageEditorActivity : AppCompatActivity() {
             .setTitle("Image Options")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> applyFilter(scanImage, ImageFilterMode.BLACK_WHITE)
-                    1 -> applyFilter(scanImage, ImageFilterMode.GRAYSCALE)
-                    2 -> applyFilter(scanImage, ImageFilterMode.COLOR)
-                    3 -> rotateImage(scanImage)
-                    4 -> enhanceImage(scanImage)
-                    5 -> saveImage(scanImage)
-                    6 -> deleteImage(scanImage)
+                    0 -> showOcrLanguageDialog(scanImage)
+                    1 -> applyFilter(scanImage, ImageFilterMode.BLACK_WHITE)
+                    2 -> applyFilter(scanImage, ImageFilterMode.GRAYSCALE)
+                    3 -> applyFilter(scanImage, ImageFilterMode.COLOR)
+                    4 -> rotateImage(scanImage)
+                    5 -> enhanceImage(scanImage)
+                    6 -> saveImage(scanImage)
+                    7 -> deleteImage(scanImage)
                 }
             }
             .show()
@@ -291,6 +296,92 @@ class ImageEditorActivity : AppCompatActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun showOcrLanguageDialog(scanImage: ScanImage) {
+        val languages = arrayOf(
+            "Auto Detect",
+            "English (Latin)",
+            "简体中文 (Simplified Chinese)",
+            "繁體中文 (Traditional Chinese)",
+            "日本語 (Japanese)",
+            "한국어 (Korean)"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Select OCR Language")
+            .setItems(languages) { _, which ->
+                val langCode = when (which) {
+                    0 -> "auto"
+                    1 -> "en"
+                    2 -> "chinese"
+                    3 -> "traditional"
+                    4 -> "japanese"
+                    5 -> "korean"
+                    else -> "auto"
+                }
+                runOcr(scanImage, langCode)
+            }
+            .show()
+    }
+
+    private fun runOcr(scanImage: ScanImage, language: String = "auto") {
+        val progress = ProgressDialog(this).apply {
+            setMessage("Extracting text...")
+            setCancelable(false)
+            show()
+        }
+
+        lifecycleScope.launch {
+            try {
+                val bitmap = ImageFilter.loadBitmap(scanImage.filePath)
+                if (bitmap == null) {
+                    progress.dismiss()
+                    Toast.makeText(this@ImageEditorActivity, "Could not load image", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                // Run OCR with selected language
+                val result = if (language == "auto") {
+                    OcrHelper.recognizeTextAuto(bitmap)
+                } else {
+                    OcrHelper.recognizeText(bitmap, language)
+                }
+
+                progress.dismiss()
+                showOcrResult(result)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                progress.dismiss()
+                Toast.makeText(this@ImageEditorActivity, "OCR failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun showOcrResult(result: com.paperscanner.processing.OcrResult) {
+        val scrollView = ScrollView(this).apply {
+            setPadding(48, 32, 48, 32)
+        }
+
+        val textView = TextView(this).apply {
+            text = result.fullText.ifEmpty { "No text detected" }
+            textSize = 14f
+            setTextColor(resources.getColor(R.color.text_primary, null))
+            setTextIsSelectable(true)
+        }
+
+        scrollView.addView(textView)
+
+        AlertDialog.Builder(this)
+            .setTitle("OCR Result (${result.language})")
+            .setView(scrollView)
+            .setPositiveButton("Copy") { _, _ ->
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("OCR Text", result.fullText))
+                Toast.makeText(this@ImageEditorActivity, "Text copied", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     private fun deleteImage(scanImage: ScanImage) {

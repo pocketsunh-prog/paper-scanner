@@ -70,4 +70,10 @@ dependencies {
 
     // Image processing
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+
+    // ML Kit Text Recognition (OCR)
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition-chinese:16.0.0")
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition-japanese:16.0.0")
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition-korean:16.0.0")
 }

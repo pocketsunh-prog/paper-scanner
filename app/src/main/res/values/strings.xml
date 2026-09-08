@@ -60,4 +60,18 @@
     <string name="size_4_3">4:3</string>
     <string name="size_16_9">16:9</string>
     <string name="size_1_1">1:1</string>
+    <string name="ocr">OCR</string>
+    <string name="ocr_extract_text">Extract Text</string>
+    <string name="ocr_result">OCR Result</string>
+    <string name="ocr_copy">Copy</string>
+    <string name="ocr_no_text">No text detected</string>
+    <string name="ocr_processing">Extracting text...</string>
+    <string name="ocr_select_language">Select OCR Language</string>
+    <string name="ocr_auto">Auto Detect</string>
+    <string name="ocr_english">English</string>
+    <string name="ocr_chinese_simplified">Simplified Chinese</string>
+    <string name="ocr_chinese_traditional">Traditional Chinese</string>
+    <string name="ocr_japanese">Japanese</string>
+    <string name="ocr_korean">Korean</string>
+    <string name="ocr_traditional_chinese">繁體中文</string>
 </resources>
