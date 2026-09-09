@@ -72,6 +72,19 @@ com.paperscanner/
 # Set JDK 17 (required)
 $env:JAVA_HOME = "C:\path\to\jdk-17"
 
+### Set `JAVA_HOME` to your JDK 17 install:
+   - **Windows (PowerShell):**
+     ```powershell
+     $env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot"
+     ```
+   - **Windows (cmd):**
+     ```bat
+     set JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot
+     ```
+   - **macOS / Linux:**
+     ```bash
+     export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+     ```
 # Build
 .\gradlew assembleRelease
 ```

@@ -4,8 +4,10 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Size
+import android.view.MotionEvent
 import android.view.View
 import android.widget.*
+import android.widget.ImageButton
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
@@ -25,6 +27,7 @@ import com.paperscanner.processing.TranslationHelper
 import kotlinx.coroutines.launch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.sqrt
 
 class RealTimeOcrActivity : AppCompatActivity() {
 
@@ -36,6 +39,9 @@ class RealTimeOcrActivity : AppCompatActivity() {
     private lateinit var tvDetectedText: TextView
     private lateinit var tvTranslatedText: TextView
     private lateinit var progressBar: ProgressBar
+    private lateinit var btnZoomIn: ImageButton
+    private lateinit var btnZoomOut: ImageButton
+    private lateinit var tvZoomLevel: TextView
 
     private var camera: Camera? = null
     private var imageAnalysis: ImageAnalysis? = null
@@ -62,6 +68,12 @@ class RealTimeOcrActivity : AppCompatActivity() {
         tvDetectedText = findViewById(R.id.tv_detected_text)
         tvTranslatedText = findViewById(R.id.tv_translated_text)
         progressBar = findViewById(R.id.progress_bar)
+        btnZoomIn = findViewById(R.id.btn_zoom_in)
+        btnZoomOut = findViewById(R.id.btn_zoom_out)
+        tvZoomLevel = findViewById(R.id.tv_zoom_level)
+
+        btnZoomIn.setOnClickListener { zoomBy(0.1f) }
+        btnZoomOut.setOnClickListener { zoomBy(-0.1f) }
 
         fabClose.setOnClickListener { finish() }
 
@@ -110,6 +122,15 @@ class RealTimeOcrActivity : AppCompatActivity() {
                 camera = cameraProvider.bindToLifecycle(
                     this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis
                 )
+
+                // Initialize zoom display and listen for changes
+                val initialZoom = camera?.cameraInfo?.zoomState?.value?.zoomRatio ?: 1f
+                updateZoomDisplay(initialZoom)
+                camera?.cameraInfo?.zoomState?.observe(this) { zoomState ->
+                    updateZoomDisplay(zoomState.zoomRatio)
+                }
+
+                setupPinchToZoom()
             } catch (e: Exception) {
                 Toast.makeText(this, "Camera failed", Toast.LENGTH_SHORT).show()
             }
@@ -265,6 +286,54 @@ class RealTimeOcrActivity : AppCompatActivity() {
     private fun allPermissionsGranted() = ContextCompat.checkSelfPermission(
         baseContext, Manifest.permission.CAMERA
     ) == PackageManager.PERMISSION_GRANTED
+
+    private fun zoomBy(delta: Float) {
+        val camera = camera ?: return
+        val currentZoom = camera.cameraInfo.zoomState.value?.zoomRatio ?: 1f
+        val newZoom = (currentZoom + delta).coerceIn(1f, camera.cameraInfo.zoomState.value?.maxZoomRatio ?: 5f)
+        camera.cameraControl.setZoomRatio(newZoom)
+        updateZoomDisplay(newZoom)
+    }
+
+    private fun setupPinchToZoom() {
+        var lastDistance = 0f
+        viewFinder.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    if (event.pointerCount >= 2) {
+                        lastDistance = spacing(event)
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (event.pointerCount >= 2) {
+                        val currentDistance = spacing(event)
+                        if (lastDistance > 0) {
+                            val delta = (currentDistance - lastDistance) / 200f
+                            val cam = camera ?: return@setOnTouchListener false
+                            val currentZoom = cam.cameraInfo.zoomState.value?.zoomRatio ?: 1f
+                            val maxZoom = cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 5f
+                            val newZoom = (currentZoom + delta).coerceIn(1f, maxZoom)
+                            cam.cameraControl.setZoomRatio(newZoom)
+                            updateZoomDisplay(newZoom)
+                        }
+                        lastDistance = currentDistance
+                    }
+                }
+            }
+            false
+        }
+    }
+
+    private fun spacing(event: MotionEvent): Float {
+        if (event.pointerCount < 2) return 0f
+        val x = event.getX(0) - event.getX(1)
+        val y = event.getY(0) - event.getY(1)
+        return sqrt(x * x + y * y)
+    }
+
+    private fun updateZoomDisplay(zoomRatio: Float) {
+        tvZoomLevel.text = String.format("%.1fx", zoomRatio)
+    }
 
     override fun onDestroy() {
         super.onDestroy()
