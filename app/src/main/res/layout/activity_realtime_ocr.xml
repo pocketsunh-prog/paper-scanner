@@ -183,6 +183,21 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:tint="@color/white" />
 
+    <!-- Read detected / translated text aloud -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_speak"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
+        android:contentDescription="@string/tts_speak"
+        android:src="@drawable/ic_speak"
+        app:backgroundTint="@color/primary"
+        app:fabSize="mini"
+        app:layout_constraintBottom_toTopOf="@id/fab_capture_ocr"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:tint="@color/white" />
+
     <ProgressBar
         android:id="@+id/progress_bar"
         android:layout_width="wrap_content"

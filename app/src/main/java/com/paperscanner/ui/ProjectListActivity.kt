@@ -66,6 +66,10 @@ class ProjectListActivity : AppCompatActivity() {
         findViewById<FloatingActionButton>(R.id.fab_ocr).setOnClickListener {
             startActivity(Intent(this, RealTimeOcrActivity::class.java))
         }
+
+        findViewById<FloatingActionButton>(R.id.fab_tts).setOnClickListener {
+            startActivity(Intent(this, TextToSpeechActivity::class.java))
+        }
     }
 
     override fun onResume() {

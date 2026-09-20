@@ -118,6 +118,7 @@ class ImageEditorActivity : AppCompatActivity() {
     private fun showImageOptions(scanImage: ScanImage) {
         val options = arrayOf(
             "OCR (Extract Text)",
+            getString(R.string.read_aloud),
             getString(R.string.black_white),
             getString(R.string.grayscale),
             getString(R.string.color),
@@ -132,13 +133,14 @@ class ImageEditorActivity : AppCompatActivity() {
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> showOcrLanguageDialog(scanImage)
-                    1 -> applyFilter(scanImage, ImageFilterMode.BLACK_WHITE)
-                    2 -> applyFilter(scanImage, ImageFilterMode.GRAYSCALE)
-                    3 -> applyFilter(scanImage, ImageFilterMode.COLOR)
-                    4 -> rotateImage(scanImage)
-                    5 -> enhanceImage(scanImage)
-                    6 -> saveImage(scanImage)
-                    7 -> deleteImage(scanImage)
+                    1 -> showOcrLanguageDialog(scanImage, speakAfter = true)
+                    2 -> applyFilter(scanImage, ImageFilterMode.BLACK_WHITE)
+                    3 -> applyFilter(scanImage, ImageFilterMode.GRAYSCALE)
+                    4 -> applyFilter(scanImage, ImageFilterMode.COLOR)
+                    5 -> rotateImage(scanImage)
+                    6 -> enhanceImage(scanImage)
+                    7 -> saveImage(scanImage)
+                    8 -> deleteImage(scanImage)
                 }
             }
             .show()
@@ -298,7 +300,7 @@ class ImageEditorActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun showOcrLanguageDialog(scanImage: ScanImage) {
+    private fun showOcrLanguageDialog(scanImage: ScanImage, speakAfter: Boolean = false) {
         val languages = arrayOf(
             "Auto Detect",
             "English (Latin)",
@@ -320,12 +322,16 @@ class ImageEditorActivity : AppCompatActivity() {
                     5 -> "korean"
                     else -> "auto"
                 }
-                runOcr(scanImage, langCode)
+                runOcr(scanImage, langCode, speakAfter)
             }
             .show()
     }
 
-    private fun runOcr(scanImage: ScanImage, language: String = "auto") {
+    private fun runOcr(
+        scanImage: ScanImage,
+        language: String = "auto",
+        speakAfter: Boolean = false
+    ) {
         val progress = ProgressDialog(this).apply {
             setMessage("Extracting text...")
             setCancelable(false)
@@ -349,13 +355,33 @@ class ImageEditorActivity : AppCompatActivity() {
                 }
 
                 progress.dismiss()
-                showOcrResult(result)
+
+                // Image → text → voice: hand the recognised text straight to the speaker
+                if (speakAfter) {
+                    openSpeechScreen(result.fullText, result.language)
+                } else {
+                    showOcrResult(result)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
                 progress.dismiss()
                 Toast.makeText(this@ImageEditorActivity, "OCR failed: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    /** Open the Text-to-Speech screen with [text] ready to be read out. */
+    private fun openSpeechScreen(text: String, ocrLanguage: String? = null) {
+        if (text.isBlank()) {
+            Toast.makeText(this, R.string.ocr_no_text, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val intent = Intent(this, TextToSpeechActivity::class.java)
+        intent.putExtra(TextToSpeechActivity.EXTRA_TEXT, text)
+        intent.putExtra(TextToSpeechActivity.EXTRA_AUTO_SPEAK, true)
+        ocrLanguage?.let { intent.putExtra(TextToSpeechActivity.EXTRA_OCR_LANGUAGE, it) }
+        startActivity(intent)
     }
 
     private fun showOcrResult(result: com.paperscanner.processing.OcrResult) {
@@ -379,6 +405,9 @@ class ImageEditorActivity : AppCompatActivity() {
                 val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("OCR Text", result.fullText))
                 Toast.makeText(this@ImageEditorActivity, "Text copied", Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton(R.string.speak_this_text) { _, _ ->
+                openSpeechScreen(result.fullText, result.language)
             }
             .setNegativeButton("Close", null)
             .show()

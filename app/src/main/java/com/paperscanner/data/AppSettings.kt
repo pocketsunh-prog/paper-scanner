@@ -49,6 +49,32 @@ class AppSettings(context: Context) {
         get() = prefs.getString(KEY_CAMERA_COLOR, "COLOR") ?: "COLOR"
         set(value) = prefs.edit().putString(KEY_CAMERA_COLOR, value).apply()
 
+    // Text-to-speech settings
+    /** Name of the selected TTS voice ("speaker"). Null = pick a sensible default. */
+    var ttsVoiceName: String?
+        get() = prefs.getString(KEY_TTS_VOICE, null)
+        set(value) = prefs.edit().putString(KEY_TTS_VOICE, value).apply()
+
+    /** BCP-47 tag of the preferred speaking language, e.g. "en-US". */
+    var ttsLanguageTag: String
+        get() = prefs.getString(KEY_TTS_LANGUAGE, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_TTS_LANGUAGE, value).apply()
+
+    /** Speech rate multiplier, 0.5x..2.0x */
+    var ttsSpeechRate: Float
+        get() = prefs.getFloat(KEY_TTS_RATE, 1.0f)
+        set(value) = prefs.edit().putFloat(KEY_TTS_RATE, value.coerceIn(0.5f, 2.0f)).apply()
+
+    /** Speech pitch multiplier, 0.5x..2.0x */
+    var ttsPitch: Float
+        get() = prefs.getFloat(KEY_TTS_PITCH, 1.0f)
+        set(value) = prefs.edit().putFloat(KEY_TTS_PITCH, value.coerceIn(0.5f, 2.0f)).apply()
+
+    /** Start reading automatically when the Text-to-Speech screen opens with text. */
+    var ttsAutoSpeak: Boolean
+        get() = prefs.getBoolean(KEY_TTS_AUTO_SPEAK, true)
+        set(value) = prefs.edit().putBoolean(KEY_TTS_AUTO_SPEAK, value).apply()
+
     companion object {
         private const val KEY_JPEG_QUALITY = "jpeg_quality"
         private const val KEY_FILTER_MODE = "filter_mode"
@@ -60,5 +86,10 @@ class AppSettings(context: Context) {
         private const val KEY_CAMERA_RESOLUTION = "camera_resolution"
         private const val KEY_PICTURE_SIZE = "picture_size"
         private const val KEY_CAMERA_COLOR = "camera_color"
+        private const val KEY_TTS_VOICE = "tts_voice_name"
+        private const val KEY_TTS_LANGUAGE = "tts_language_tag"
+        private const val KEY_TTS_RATE = "tts_speech_rate"
+        private const val KEY_TTS_PITCH = "tts_pitch"
+        private const val KEY_TTS_AUTO_SPEAK = "tts_auto_speak"
     }
 }

@@ -9,6 +9,13 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
+    <!-- Required on Android 11+ so the app can see and use the system TTS engine -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -31,6 +38,9 @@
         <activity android:name=".ui.ImageEditorActivity" />
         <activity android:name=".ui.SettingsActivity" />
         <activity android:name=".ui.RealTimeOcrActivity" />
+        <activity
+            android:name=".ui.TextToSpeechActivity"
+            android:windowSoftInputMode="adjustResize" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

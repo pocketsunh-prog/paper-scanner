@@ -79,4 +79,32 @@
     <string name="select_language">Select Language</string>
     <string name="no_text_detected">No text detected</string>
     <string name="point_camera_at_text">Point camera at text</string>
+
+    <!-- Text to speech -->
+    <string name="text_to_speech">Text to Speech</string>
+    <string name="tts_input_label">Text to read</string>
+    <string name="tts_input_hint">Type or paste text here…</string>
+    <string name="tts_speak">Speak</string>
+    <string name="tts_stop">Stop</string>
+    <string name="tts_paste">Paste</string>
+    <string name="tts_clear">Clear</string>
+    <string name="tts_speaker">Speaker</string>
+    <string name="tts_change_speaker">Change speaker</string>
+    <string name="tts_select_speaker">Select speaker</string>
+    <string name="tts_speaker_hint">Speakers are the voices installed in your device\'s text-to-speech engine.</string>
+    <string name="tts_no_speakers">No voices are installed. Add a text-to-speech voice in Android settings, then come back.</string>
+    <string name="tts_voice_sample">Hello, this is how I sound.</string>
+    <string name="tts_speed">Speed</string>
+    <string name="tts_pitch">Pitch</string>
+    <string name="tts_status_initializing">Preparing speech engine…</string>
+    <string name="tts_status_ready">Ready</string>
+    <string name="tts_status_speaking">Speaking…</string>
+    <string name="tts_status_unavailable">Text-to-speech is unavailable</string>
+    <string name="tts_empty_text">Enter some text first</string>
+    <string name="tts_voice_failed">Could not use this voice</string>
+    <string name="tts_auto_read">Read aloud right after scanning</string>
+    <string name="tts_auto_read_hint">When on, text recognised from an image is read out automatically.</string>
+    <string name="tts_nothing_to_paste">Clipboard is empty</string>
+    <string name="read_aloud">Read Aloud (OCR → Voice)</string>
+    <string name="speak_this_text">Speak</string>
 </resources>

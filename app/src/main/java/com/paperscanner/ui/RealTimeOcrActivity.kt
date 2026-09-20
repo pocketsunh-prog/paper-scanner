@@ -23,6 +23,7 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.paperscanner.R
+import com.paperscanner.processing.SpeechHelper
 import com.paperscanner.processing.TranslationHelper
 import kotlinx.coroutines.launch
 import java.util.concurrent.ExecutorService
@@ -36,6 +37,7 @@ class RealTimeOcrActivity : AppCompatActivity() {
     private lateinit var fabClose: FloatingActionButton
     private lateinit var fabTranslate: FloatingActionButton
     private lateinit var fabCapture: FloatingActionButton
+    private lateinit var fabSpeak: FloatingActionButton
     private lateinit var tvDetectedText: TextView
     private lateinit var tvTranslatedText: TextView
     private lateinit var progressBar: ProgressBar
@@ -52,6 +54,8 @@ class RealTimeOcrActivity : AppCompatActivity() {
     private var isProcessing = false
     private var lastTranslatedText = ""
 
+    private lateinit var speech: SpeechHelper
+
     init {
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
@@ -60,11 +64,14 @@ class RealTimeOcrActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_realtime_ocr)
 
+        speech = SpeechHelper(this)
+
         viewFinder = findViewById(R.id.view_finder)
         overlayView = findViewById(R.id.ocr_overlay)
         fabClose = findViewById(R.id.fab_close)
         fabTranslate = findViewById(R.id.fab_translate)
         fabCapture = findViewById(R.id.fab_capture_ocr)
+        fabSpeak = findViewById(R.id.fab_speak)
         tvDetectedText = findViewById(R.id.tv_detected_text)
         tvTranslatedText = findViewById(R.id.tv_translated_text)
         progressBar = findViewById(R.id.progress_bar)
@@ -87,6 +94,24 @@ class RealTimeOcrActivity : AppCompatActivity() {
             } else {
                 Toast.makeText(this, "No text detected", Toast.LENGTH_SHORT).show()
             }
+        }
+
+        // Read the translated text (or the original) out loud; tap again to stop
+        fabSpeak.setOnClickListener {
+            if (speech.isSpeaking) {
+                speech.stop()
+                return@setOnClickListener
+            }
+
+            val text = lastTranslatedText.ifBlank { lastDetectedText }
+            if (text.isBlank()) {
+                Toast.makeText(this, R.string.no_text_detected, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            // Use a speaker that matches the language being read out
+            SpeechHelper.localeForOcrLanguage(selectedTargetLang)?.let { speech.useLanguage(it) }
+            speech.speak(text)
         }
 
         if (allPermissionsGranted()) {
@@ -335,9 +360,15 @@ class RealTimeOcrActivity : AppCompatActivity() {
         tvZoomLevel.text = String.format("%.1fx", zoomRatio)
     }
 
+    override fun onPause() {
+        super.onPause()
+        speech.stop()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
+        speech.shutdown()
         TranslationHelper.releaseAll()
     }
 }
