@@ -47,6 +47,12 @@ android {
     buildFeatures {
         viewBinding = true
     }
+
+    testOptions {
+        // DocumentDetector only touches android.graphics.RectF, which the JVM stubs
+        // out; returning defaults lets the pure-geometry tests run without a device.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -79,4 +85,6 @@ dependencies {
 
     // ML Kit Translation
     implementation("com.google.mlkit:translate:17.0.2")
+
+    testImplementation("junit:junit:4.13.2")
 }

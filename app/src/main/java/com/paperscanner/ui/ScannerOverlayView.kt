@@ -68,6 +68,34 @@ class ScannerOverlayView @JvmOverloads constructor(
         isAntiAlias = true
     }
 
+    // Clean, straight rectangle for the detected page (matches the usual document-scan look)
+    private val pageOutlinePaint = Paint().apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+        color = Color.parseColor("#FFD24D")
+        strokeJoin = Paint.Join.ROUND
+        isAntiAlias = true
+    }
+
+    private val pageCornerPaint = Paint().apply {
+        style = Paint.Style.FILL
+        color = Color.parseColor("#FFFDF7")
+        isAntiAlias = true
+    }
+
+    private val pageCornerRingPaint = Paint().apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        color = Color.parseColor("#FFD24D")
+        isAntiAlias = true
+    }
+
+    /** Light dim outside the page - enough to lift it, not enough to hide the scene. */
+    private val pageDimPaint = Paint().apply {
+        color = Color.parseColor("#26000000")
+        style = Paint.Style.FILL
+    }
+
     private var detectionResult: DetectionResult? = null
     private var showFocusArea: Boolean = true
     private var statusText: String = "Point camera at a document"
@@ -340,10 +368,8 @@ class ScannerOverlayView @JvmOverloads constructor(
             // AUTO MODE: Show detected document
             if (corners != null && corners.size == 4) {
                 val points = corners.map { toViewPoint(it.first, it.second) }
-                drawOverlayAroundPolygon(canvas, points, w, h)
-                drawRopeLoopCorners(
-                    canvas, points[0], points[1], points[2], points[3], 10f
-                )
+                dimOutsidePolygon(canvas, points, w, h)
+                drawPageRectangle(canvas, points)
             } else {
                 val topLeft = toViewPoint(bounds.left, bounds.top)
                 val bottomRight = toViewPoint(bounds.right, bounds.bottom)
@@ -411,6 +437,46 @@ class ScannerOverlayView @JvmOverloads constructor(
         canvas.drawCircle(right, bottom, handleRadius, cornerKnotPaint)
     }
 
+    /** Dim everything outside the detected page, leaving the page itself clear. */
+    private fun dimOutsidePolygon(canvas: Canvas, points: List<Pair<Float, Float>>, w: Float, h: Float) {
+        val outside = Path().apply {
+            moveTo(0f, 0f)
+            lineTo(w, 0f)
+            lineTo(w, h)
+            lineTo(0f, h)
+            close()
+        }
+
+        val page = Path().apply {
+            moveTo(points[0].first, points[0].second)
+            for (i in 1 until points.size) {
+                lineTo(points[i].first, points[i].second)
+            }
+            close()
+        }
+
+        outside.op(page, Path.Op.XOR)
+        canvas.drawPath(outside, pageDimPaint)
+    }
+
+    /** Straight outline plus corner handles, the way a document scanner marks the page. */
+    private fun drawPageRectangle(canvas: Canvas, points: List<Pair<Float, Float>>) {
+        val outline = Path().apply {
+            moveTo(points[0].first, points[0].second)
+            for (i in 1 until points.size) {
+                lineTo(points[i].first, points[i].second)
+            }
+            close()
+        }
+        canvas.drawPath(outline, pageOutlinePaint)
+
+        val radius = 6f
+        for (point in points) {
+            canvas.drawCircle(point.first, point.second, radius, pageCornerPaint)
+            canvas.drawCircle(point.first, point.second, radius, pageCornerRingPaint)
+        }
+    }
+
     private fun drawOverlayAroundPolygon(canvas: Canvas, points: List<Pair<Float, Float>>, w: Float, h: Float) {
         val path = Path()
         // Start from top-left corner
@@ -431,40 +497,6 @@ class ScannerOverlayView @JvmOverloads constructor(
         // Draw overlay with hole using even-odd rule
         path.op(docPath, Path.Op.XOR)
         canvas.drawPath(path, overlayPaint)
-    }
-
-    private fun drawRopeLoopCorners(
-        canvas: Canvas,
-        tl: Pair<Float, Float>,
-        tr: Pair<Float, Float>,
-        br: Pair<Float, Float>,
-        bl: Pair<Float, Float>,
-        pad: Float
-    ) {
-        val ropeWave = 3f
-        val ropeSegments = 40
-
-        // Draw glow first
-        drawWavyQuad(canvas, tl, tr, br, bl, ropeGlowPaint, ropeWave, ropeSegments, pad)
-        // Draw main rope
-        drawWavyQuad(canvas, tl, tr, br, bl, ropePaint, ropeWave, ropeSegments, pad)
-
-        // Draw corner knots
-        val knotRadius = 8f
-        cornerKnotPaint.color = Color.parseColor("#5B8C5A")
-        canvas.drawCircle(tl.first, tl.second, knotRadius, cornerKnotPaint)
-        canvas.drawCircle(tr.first, tr.second, knotRadius, cornerKnotPaint)
-        canvas.drawCircle(br.first, br.second, knotRadius, cornerKnotPaint)
-        canvas.drawCircle(bl.first, bl.second, knotRadius, cornerKnotPaint)
-
-        // Draw small decorative knots
-        val perimeter = (distance(tl, tr) + distance(tr, br) + distance(br, bl) + distance(bl, tl))
-        val knotSpacing = perimeter / 6f
-        for (i in 0 until 6) {
-            val dist = (i * knotSpacing + ropePhase * knotSpacing) % perimeter
-            val (kx, ky) = getPointOnQuadPerimeter(tl, tr, br, bl, dist)
-            canvas.drawCircle(kx, ky, 3.5f, knotPaint)
-        }
     }
 
     private fun drawWavyQuad(

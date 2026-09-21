@@ -2,11 +2,10 @@ package com.paperscanner.processing
 
 import android.graphics.RectF
 import java.nio.ByteBuffer
-import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sqrt
 
 /**
  * How the detected page lies in the upright (screen) frame.
@@ -39,16 +38,27 @@ data class DetectionResult(
 
 object DocumentDetector {
 
-    /** A page has to cover at least this fraction of the frame to count as detected. */
+    /** The page has to cover at least this fraction of the frame to count as found. */
     private const val MIN_COVERAGE = 0.08f
 
     /** Coverage that saturates the confidence score. */
     private const val FULL_CONFIDENCE_COVERAGE = 0.5f
 
-    /** How much of the fitted rectangle the detected shape must actually fill. */
-    private const val MIN_RECT_FILL = 0.70f
+    /**
+     * How much of the fitted rectangle the page has to actually fill. This is what
+     * rejects a hull built from unrelated bright objects scattered around the frame.
+     */
+    private const val MIN_RECT_FILL = 0.65f
 
-    private const val MIN_COMPONENT_PIXELS = 40
+    /** Bright/dark patches smaller than this share of the frame are ignored. */
+    private const val MIN_COMPONENT_COVERAGE = 0.02f
+
+    /**
+     * A blob spanning this much of the frame in *both* directions is the background
+     * wrapping around everything, not a page. A page that pokes slightly out of frame
+     * still passes, so a nearly-framed document is not thrown away.
+     */
+    private const val SPAN_REJECT_FRACTION = 0.98f
 
     fun detectDocument(
         luminance: IntArray,
@@ -60,21 +70,24 @@ object DocumentDetector {
             return DetectionResult(false)
         }
 
-        // Step 1: smooth out sensor noise
-        val blurred = gaussianBlur(luminance, width, height)
+        // Light smoothing so sensor noise doesn't speckle the page/background split
+        val radius = max(1, min(width, height) / 64)
+        val smoothed = boxBlur(luminance, width, height, radius)
+        val threshold = otsuThreshold(smoothed)
 
-        // Step 2: gradient magnitude (Sobel)
-        val edges = sobelEdges(blurred, width, height)
+        val frameArea = width.toFloat() * height.toFloat()
+        val minComponentPixels = (frameArea * MIN_COMPONENT_COVERAGE).toInt()
 
-        // Step 3: split edges from flat areas (Otsu)
-        val binary = binarize(edges)
+        // A page is usually the bright side, but a dark page on a pale desk is just as
+        // valid. Both sides are measured and the better rectangle wins.
+        val bright = pageCandidate(smoothed, width, height, minComponentPixels) { it > threshold }
+        val dark = pageCandidate(smoothed, width, height, minComponentPixels) { it <= threshold }
 
-        // Step 4: fit a rectangle to the most page-like shape in frame
-        val page = findBestRectangle(binary, width, height) ?: return DetectionResult(false)
+        val page = listOfNotNull(bright, dark).maxByOrNull { it.score } ?: return DetectionResult(false)
 
-        val coverage = page.area / (width.toFloat() * height.toFloat())
+        val coverage = page.rectangleArea / frameArea
         val confidence = (
-                (coverage / FULL_CONFIDENCE_COVERAGE).coerceIn(0f, 1f) * page.fit
+                (coverage / FULL_CONFIDENCE_COVERAGE).coerceIn(0f, 1f) * page.fill
                 ).coerceIn(0f, 1f)
 
         // Corners stay in frame space so the capture step can map them onto the photo
@@ -85,8 +98,8 @@ object DocumentDetector {
             bounds = cornersToBounds(normalized),
             confidence = confidence,
             corners = normalized,
-            orientation = orientationOf(page.longDirection, width, height, rotationDegrees),
-            skewDegrees = skewOf(page.longDirection, width, height, rotationDegrees)
+            orientation = orientationOf(page.longDirection, rotationDegrees),
+            skewDegrees = skewOf(page.longDirection, rotationDegrees)
         )
     }
 
@@ -118,7 +131,7 @@ object DocumentDetector {
      *
      * The plane is usually padded: `rowStride` can exceed the image width and
      * `pixelStride` is not always 1, so indexing straight through the buffer
-     * would shear the image and wreck edge detection.
+     * would shear the image and wreck detection.
      */
     fun yuvToLuminance(
         buffer: ByteBuffer,
@@ -147,94 +160,77 @@ object DocumentDetector {
         return luminance
     }
 
-    // ------------------------------------------------------------ edge stages
+    // ---------------------------------------------------------------- blur
 
-    private fun gaussianBlur(luminance: IntArray, width: Int, height: Int): IntArray {
-        val result = IntArray(width * height)
-        val kernel = intArrayOf(1, 2, 1, 2, 4, 2, 1, 2, 1)
-        val kernelSum = 16
+    /**
+     * Separable box blur using a sliding window, so the cost does not grow with the
+     * radius. Edge pixels are clamped, never left at zero.
+     */
+    private fun boxBlur(source: IntArray, width: Int, height: Int, radius: Int): IntArray {
+        if (radius <= 0) return source.copyOf()
 
-        for (y in 1 until height - 1) {
-            for (x in 1 until width - 1) {
-                var sum = 0
-                var ki = 0
-                for (dy in -1..1) {
-                    val row = (y + dy) * width
-                    for (dx in -1..1) {
-                        sum += luminance[row + x + dx] * kernel[ki]
-                        ki++
-                    }
-                }
-                result[y * width + x] = sum / kernelSum
+        val window = radius * 2 + 1
+        val horizontal = IntArray(source.size)
+
+        for (y in 0 until height) {
+            val row = y * width
+            var sum = 0
+            for (i in -radius..radius) {
+                sum += source[row + i.coerceIn(0, width - 1)]
+            }
+            for (x in 0 until width) {
+                horizontal[row + x] = sum / window
+                val leaving = (x - radius).coerceIn(0, width - 1)
+                val entering = (x + radius + 1).coerceIn(0, width - 1)
+                sum += source[row + entering] - source[row + leaving]
             }
         }
+
+        val result = IntArray(source.size)
+        for (x in 0 until width) {
+            var sum = 0
+            for (i in -radius..radius) {
+                sum += horizontal[i.coerceIn(0, height - 1) * width + x]
+            }
+            for (y in 0 until height) {
+                result[y * width + x] = sum / window
+                val leaving = (y - radius).coerceIn(0, height - 1)
+                val entering = (y + radius + 1).coerceIn(0, height - 1)
+                sum += horizontal[entering * width + x] - horizontal[leaving * width + x]
+            }
+        }
+
         return result
     }
 
-    private fun sobelEdges(luminance: IntArray, width: Int, height: Int): FloatArray {
-        val edges = FloatArray(width * height)
-
-        for (y in 1 until height - 1) {
-            val rowAbove = (y - 1) * width
-            val rowHere = y * width
-            val rowBelow = (y + 1) * width
-
-            for (x in 1 until width - 1) {
-                val tl = luminance[rowAbove + x - 1]
-                val tc = luminance[rowAbove + x]
-                val tr = luminance[rowAbove + x + 1]
-                val ml = luminance[rowHere + x - 1]
-                val mr = luminance[rowHere + x + 1]
-                val bl = luminance[rowBelow + x - 1]
-                val bc = luminance[rowBelow + x]
-                val br = luminance[rowBelow + x + 1]
-
-                val gx = (tr + 2 * mr + br) - (tl + 2 * ml + bl)
-                val gy = (bl + 2 * bc + br) - (tl + 2 * tc + tr)
-
-                // Sobel peaks at 4 * 255, so divide down into the 0..255 range
-                edges[rowHere + x] = min(255f, sqrt((gx * gx + gy * gy).toFloat()) / 4f)
-            }
-        }
-        return edges
-    }
-
-    private fun binarize(edgeMap: FloatArray): BooleanArray {
-        val threshold = otsuThreshold(edgeMap)
-        val binary = BooleanArray(edgeMap.size)
-        for (i in edgeMap.indices) {
-            binary[i] = edgeMap[i] > threshold
-        }
-        return binary
-    }
-
-    private fun otsuThreshold(edgeMap: FloatArray): Float {
+    /** Otsu's method over luminance values. */
+    private fun otsuThreshold(values: IntArray): Int {
         val histogram = IntArray(256)
-        for (value in edgeMap) {
-            histogram[value.coerceIn(0f, 255f).toInt()]++
+        for (value in values) {
+            histogram[value.coerceIn(0, 255)]++
         }
 
-        val total = edgeMap.size
-        if (total == 0) return 20f
+        val total = values.size
+        if (total == 0) return 128
 
         var sum = 0.0
         for (i in 0..255) sum += i.toDouble() * histogram[i]
 
         var sumB = 0.0
-        var wB = 0
+        var weightB = 0
         var maxVariance = 0.0
-        var threshold = 30
+        var threshold = 128
 
         for (i in 0..255) {
-            wB += histogram[i]
-            if (wB == 0) continue
-            val wF = total - wB
-            if (wF == 0) break
+            weightB += histogram[i]
+            if (weightB == 0) continue
+            val weightF = total - weightB
+            if (weightF == 0) break
 
             sumB += i.toDouble() * histogram[i]
-            val mB = sumB / wB
-            val mF = (sum - sumB) / wF
-            val variance = wB.toDouble() * wF * (mB - mF) * (mB - mF)
+            val meanB = sumB / weightB
+            val meanF = (sum - sumB) / weightF
+            val variance = weightB.toDouble() * weightF * (meanB - meanF) * (meanB - meanF)
 
             if (variance > maxVariance) {
                 maxVariance = variance
@@ -242,166 +238,159 @@ object DocumentDetector {
             }
         }
 
-        return threshold.coerceAtLeast(20).toFloat()
+        return threshold
     }
 
     // ------------------------------------------------------------- geometry
 
     private class Component(
-        val points: List<Pair<Float, Float>>,
-        val minX: Float,
-        val maxX: Float,
-        val minY: Float,
-        val maxY: Float
+        val size: Int,
+        val boundary: List<Pair<Float, Float>>,
+        val minX: Int,
+        val maxX: Int,
+        val minY: Int,
+        val maxY: Int
     ) {
-        val width get() = maxX - minX
-        val height get() = maxY - minY
+        /** True when this blob covers essentially the whole frame - i.e. background. */
+        fun spansFrame(width: Int, height: Int): Boolean {
+            val spansX = (maxX - minX + 1) >= width * SPAN_REJECT_FRACTION
+            val spansY = (maxY - minY + 1) >= height * SPAN_REJECT_FRACTION
+            return spansX && spansY
+        }
     }
 
-    /** An axis pair plus half extents describing a rotated rectangle. */
-    private class OrientedRect(
-        val centerX: Float,
-        val centerY: Float,
-        val ux: Float,
-        val uy: Float,
-        val vx: Float,
-        val vy: Float,
-        val halfWidth: Float,
-        val halfHeight: Float
-    ) {
-        val area: Float get() = 4f * halfWidth * halfHeight
-        val uIsLong: Boolean get() = halfWidth >= halfHeight
-
-        fun corners(): List<Pair<Float, Float>> = listOf(
-            Pair(centerX - ux * halfWidth - vx * halfHeight, centerY - uy * halfWidth - vy * halfHeight),
-            Pair(centerX + ux * halfWidth - vx * halfHeight, centerY + uy * halfWidth - vy * halfHeight),
-            Pair(centerX + ux * halfWidth + vx * halfHeight, centerY + uy * halfWidth + vy * halfHeight),
-            Pair(centerX - ux * halfWidth + vx * halfHeight, centerY - uy * halfWidth + vy * halfHeight)
-        )
-    }
-
-    private class RectangleCandidate(
+    private class PageCandidate(
         val corners: List<Pair<Float, Float>>,
-        val area: Float,
-        /** Fraction of the fitted rectangle actually filled by the detected shape. */
-        val fit: Float,
-        /** Unit vector along the rectangle's long axis, in frame space. */
+        val rectangleArea: Float,
+        val fill: Float,
+        /** Unit vector along the rectangle's long axis, in frame pixel space. */
         val longDirection: Pair<Float, Float>
-    )
+    ) {
+        val score: Float get() = rectangleArea * fill
+    }
 
-    private fun findBestRectangle(
-        binary: BooleanArray,
+    /**
+     * Build one page candidate from a side of the luminance threshold.
+     *
+     * Every sizeable blob on that side is gathered and the rectangle is fitted to the
+     * whole group. That is deliberate: a dark banner or table line running across a
+     * page splits it into several blobs, and fitting each one separately finds half a
+     * page. Blobs that belong to unrelated objects end up far apart, which drags the
+     * fill ratio down and gets the candidate rejected.
+     */
+    private fun pageCandidate(
+        smoothed: IntArray,
         width: Int,
-        height: Int
-    ): RectangleCandidate? {
-        val visited = BooleanArray(width * height)
-        val frameArea = width.toFloat() * height.toFloat()
-        val minArea = frameArea * MIN_COVERAGE
-        val minSide = min(width, height) * 0.15f
+        height: Int,
+        minComponentPixels: Int,
+        isOnPageSide: (Int) -> Boolean
+    ): PageCandidate? {
+        val mask = BooleanArray(smoothed.size)
+        for (i in mask.indices) {
+            mask[i] = isOnPageSide(smoothed[i])
+        }
 
-        // Collect plausible candidates first; fitting a rectangle is the expensive part
-        val components = mutableListOf<Component>()
+        val visited = BooleanArray(smoothed.size)
+        val pageBoundary = mutableListOf<Pair<Float, Float>>()
+        var pagePixels = 0
 
         for (y in 1 until height - 1) {
             for (x in 1 until width - 1) {
                 val index = y * width + x
-                if (!binary[index] || visited[index]) continue
+                if (!mask[index] || visited[index]) continue
 
-                val component = collectComponent(binary, visited, x, y, width, height)
-                if (component.points.size < MIN_COMPONENT_PIXELS) continue
-                if (component.width * component.height < minArea) continue
+                val component = collectEnclosedComponent(mask, visited, x, y, width, height)
+                if (component.size < minComponentPixels) continue
+                if (component.spansFrame(width, height)) continue
 
-                components.add(component)
+                pageBoundary.addAll(component.boundary)
+                pagePixels += component.size
             }
         }
 
-        if (components.isEmpty()) return null
+        if (pageBoundary.size < 3) return null
 
-        var best: RectangleCandidate? = null
-        var bestScore = 0f
+        val hull = convexHull(pageBoundary) ?: return null
+        val rect = minAreaRectangle(hull) ?: return null
 
-        // Biggest first - the page is normally the largest thing in frame
-        for (component in components.sortedByDescending { it.width * it.height }.take(5)) {
-            val hull = convexHull(component.points) ?: continue
-            if (hull.size < 3) continue
+        val frameArea = width.toFloat() * height.toFloat()
+        if (rect.area < frameArea * MIN_COVERAGE) return null
+        if (min(rect.halfWidth, rect.halfHeight) * 2f < min(width, height) * 0.15f) return null
 
-            val rect = minAreaRectangle(hull) ?: continue
-            if (rect.area < minArea) continue
-            if (rect.halfWidth < minSide / 2f || rect.halfHeight < minSide / 2f) continue
+        val fill = (pagePixels / rect.area).coerceIn(0f, 1f)
+        if (fill < MIN_RECT_FILL) return null
 
-            // Reject shapes that only loosely resemble a rectangle (blobs, hands, shadows)
-            val fit = (polygonArea(hull) / rect.area).coerceIn(0f, 1f)
-            if (fit < MIN_RECT_FILL) continue
-
-            val score = rect.area * fit
-            if (score > bestScore) {
-                bestScore = score
-                best = RectangleCandidate(
-                    corners = orderCorners(rect.corners()),
-                    area = rect.area,
-                    fit = fit,
-                    longDirection = if (rect.uIsLong) {
-                        Pair(rect.ux, rect.uy)
-                    } else {
-                        Pair(rect.vx, rect.vy)
-                    }
-                )
-            }
-        }
-
-        return best
+        return PageCandidate(
+            corners = orderCorners(rect.corners()),
+            rectangleArea = rect.area,
+            fill = fill,
+            longDirection = if (rect.uIsLong) Pair(rect.ux, rect.uy) else Pair(rect.vx, rect.vy)
+        )
     }
 
-    private fun collectComponent(
-        binary: BooleanArray,
+    /**
+     * Flood fill one blob. Only boundary pixels are kept - they are all the convex hull
+     * needs, and it keeps memory flat no matter how large the page is.
+     */
+    private fun collectEnclosedComponent(
+        mask: BooleanArray,
         visited: BooleanArray,
         startX: Int,
         startY: Int,
         width: Int,
         height: Int
     ): Component {
-        val points = mutableListOf<Pair<Float, Float>>()
         val queue = ArrayDeque<Int>()
-        val startIndex = startY * width + startX
+        val boundary = mutableListOf<Pair<Float, Float>>()
+        var size = 0
 
+        var minX = startX
+        var maxX = startX
+        var minY = startY
+        var maxY = startY
+
+        val startIndex = startY * width + startX
         queue.add(startIndex)
         visited[startIndex] = true
-
-        var minX = startX.toFloat()
-        var maxX = startX.toFloat()
-        var minY = startY.toFloat()
-        var maxY = startY.toFloat()
 
         while (queue.isNotEmpty()) {
             val index = queue.removeFirst()
             val x = index % width
             val y = index / width
+            size++
 
-            points.add(Pair(x.toFloat(), y.toFloat()))
-            if (x < minX) minX = x.toFloat()
-            if (x > maxX) maxX = x.toFloat()
-            if (y < minY) minY = y.toFloat()
-            if (y > maxY) maxY = y.toFloat()
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
 
-            if (x > 0) {
-                val n = index - 1
-                if (binary[n] && !visited[n]) { visited[n] = true; queue.add(n) }
+            val leftInside = x > 0 && mask[index - 1]
+            val rightInside = x < width - 1 && mask[index + 1]
+            val upInside = y > 0 && mask[index - width]
+            val downInside = y < height - 1 && mask[index + width]
+
+            if (!leftInside || !rightInside || !upInside || !downInside) {
+                boundary.add(Pair(x.toFloat(), y.toFloat()))
             }
-            if (x < width - 1) {
-                val n = index + 1
-                if (binary[n] && !visited[n]) { visited[n] = true; queue.add(n) }
-            }
-            if (y > 0) {
-                val n = index - width
-                if (binary[n] && !visited[n]) { visited[n] = true; queue.add(n) }
-            }
-            if (y < height - 1) {
-                val n = index + width
-                if (binary[n] && !visited[n]) { visited[n] = true; queue.add(n) }
+
+            for (dy in -1..1) {
+                val nextY = y + dy
+                if (nextY < 0 || nextY >= height) continue
+                val rowOffset = nextY * width
+                for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    val nextX = x + dx
+                    if (nextX < 0 || nextX >= width) continue
+                    val neighbour = rowOffset + nextX
+                    if (mask[neighbour] && !visited[neighbour]) {
+                        visited[neighbour] = true
+                        queue.add(neighbour)
+                    }
+                }
             }
         }
 
-        return Component(points, minX, maxX, minY, maxY)
+        return Component(size, boundary, minX, maxX, minY, maxY)
     }
 
     /** Andrew's monotone chain. Returns the hull, or null if degenerate. */
@@ -435,6 +424,28 @@ object DocumentDetector {
 
         val hull = lower + upper
         return if (hull.size >= 3) hull else null
+    }
+
+    /** An axis pair plus half extents describing a rotated rectangle. */
+    private class OrientedRect(
+        val centerX: Float,
+        val centerY: Float,
+        val ux: Float,
+        val uy: Float,
+        val vx: Float,
+        val vy: Float,
+        val halfWidth: Float,
+        val halfHeight: Float
+    ) {
+        val area: Float get() = 4f * halfWidth * halfHeight
+        val uIsLong: Boolean get() = halfWidth >= halfHeight
+
+        fun corners(): List<Pair<Float, Float>> = listOf(
+            Pair(centerX - ux * halfWidth - vx * halfHeight, centerY - uy * halfWidth - vy * halfHeight),
+            Pair(centerX + ux * halfWidth - vx * halfHeight, centerY + uy * halfWidth - vy * halfHeight),
+            Pair(centerX + ux * halfWidth + vx * halfHeight, centerY + uy * halfWidth + vy * halfHeight),
+            Pair(centerX - ux * halfWidth + vx * halfHeight, centerY - uy * halfWidth + vy * halfHeight)
+        )
     }
 
     /**
@@ -520,17 +531,6 @@ object DocumentDetector {
         return List(byAngle.size) { byAngle[(startIndex + it) % byAngle.size] }
     }
 
-    private fun polygonArea(quad: List<Pair<Float, Float>>): Float {
-        if (quad.size < 3) return 0f
-        var sum = 0f
-        for (i in quad.indices) {
-            val a = quad[i]
-            val b = quad[(i + 1) % quad.size]
-            sum += a.first * b.second - b.first * a.second
-        }
-        return abs(sum) / 2f
-    }
-
     private fun cornersToBounds(corners: List<Pair<Float, Float>>): RectF {
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
@@ -558,36 +558,30 @@ object DocumentDetector {
 
     /**
      * Angle of the page's long axis in the upright frame, folded into 0..180 degrees.
-     * Measured on the page rather than the frame, so a tilted page reports correctly.
+     *
+     * [longDirection] is already a unit vector in frame *pixel* space and frame pixels
+     * are square, so it must not be scaled by the frame size again - doing that sheared
+     * the angle (an 18 degree page reported as 13.7 degrees).
      */
-    private fun longAxisAngle(
-        longDirection: Pair<Float, Float>,
-        frameWidth: Int,
-        frameHeight: Int,
-        rotationDegrees: Int
-    ): Float {
+    private fun longAxisAngle(longDirection: Pair<Float, Float>, rotationDegrees: Int): Float {
         val direction = rotateDirection(longDirection.first, longDirection.second, rotationDegrees)
-        val (uprightWidth, uprightHeight) = uprightSize(frameWidth, frameHeight, rotationDegrees)
 
-        // Scale by the frame size so the angle reflects real proportions, not normalized ones
-        val dx = direction.first * uprightWidth
-        val dy = direction.second * uprightHeight
+        val degrees = Math.toDegrees(
+            atan2(direction.second.toDouble(), direction.first.toDouble())
+        ).toFloat()
 
-        val degrees = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
         return ((degrees % 180f) + 180f) % 180f
     }
 
     private fun orientationOf(
         longDirection: Pair<Float, Float>,
-        frameWidth: Int,
-        frameHeight: Int,
         rotationDegrees: Int
     ): DocumentOrientation {
         if (longDirection.first == 0f && longDirection.second == 0f) {
             return DocumentOrientation.UNKNOWN
         }
 
-        val angle = longAxisAngle(longDirection, frameWidth, frameHeight, rotationDegrees)
+        val angle = longAxisAngle(longDirection, rotationDegrees)
 
         return if (angle < 45f || angle > 135f) {
             DocumentOrientation.HORIZONTAL
@@ -597,13 +591,8 @@ object DocumentDetector {
     }
 
     /** Tilt of the page relative to the nearest axis, folded into -45..45 degrees. */
-    private fun skewOf(
-        longDirection: Pair<Float, Float>,
-        frameWidth: Int,
-        frameHeight: Int,
-        rotationDegrees: Int
-    ): Float {
-        val angle = longAxisAngle(longDirection, frameWidth, frameHeight, rotationDegrees)
+    private fun skewOf(longDirection: Pair<Float, Float>, rotationDegrees: Int): Float {
+        val angle = longAxisAngle(longDirection, rotationDegrees)
 
         var tilt = if (angle <= 90f) angle else angle - 180f
         if (tilt > 45f) tilt -= 90f
