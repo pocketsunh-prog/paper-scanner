@@ -23,6 +23,9 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var switchAutoCapture: SwitchMaterial
     private lateinit var switchFlash: SwitchMaterial
     private lateinit var switchFocusArea: SwitchMaterial
+    private lateinit var switchDetectionOutline: SwitchMaterial
+    private lateinit var switchDetectionStatus: SwitchMaterial
+    private lateinit var spinnerDetectionMode: Spinner
     private lateinit var tvPdfPath: TextView
     private lateinit var btnBrowsePdfPath: android.widget.Button
     private lateinit var btnEditPdfPath: android.widget.Button
@@ -53,6 +56,9 @@ class SettingsActivity : AppCompatActivity() {
         switchAutoCapture = findViewById(R.id.switch_auto_capture)
         switchFlash = findViewById(R.id.switch_flash)
         switchFocusArea = findViewById(R.id.switch_focus_area)
+        switchDetectionOutline = findViewById(R.id.switch_detection_outline)
+        switchDetectionStatus = findViewById(R.id.switch_detection_status)
+        spinnerDetectionMode = findViewById(R.id.spinner_detection_mode)
         tvPdfPath = findViewById(R.id.tv_pdf_path)
         btnBrowsePdfPath = findViewById(R.id.btn_browse_pdf_path)
         btnEditPdfPath = findViewById(R.id.btn_edit_pdf_path)
@@ -65,6 +71,7 @@ class SettingsActivity : AppCompatActivity() {
         setupSwitches()
         setupPdfPath()
         setupCameraSpinners()
+        setupDetectionSettings()
 
         updatePdfPathDisplay()
     }
@@ -116,6 +123,42 @@ class SettingsActivity : AppCompatActivity() {
         switchFocusArea.setOnCheckedChangeListener { _, isChecked ->
             settings.showFocusArea = isChecked
         }
+
+        switchDetectionOutline.isChecked = settings.showDetectionOutline
+        switchDetectionOutline.setOnCheckedChangeListener { _, isChecked ->
+            settings.showDetectionOutline = isChecked
+        }
+
+        switchDetectionStatus.isChecked = settings.showDetectionStatus
+        switchDetectionStatus.setOnCheckedChangeListener { _, isChecked ->
+            settings.showDetectionStatus = isChecked
+        }
+    }
+
+    /**
+     * Detection controls used to live on the camera screen; they are configured here
+     * so the camera view stays uncluttered.
+     */
+    private fun setupDetectionSettings() {
+        val modeValues = listOf("AUTO", "MANUAL")
+        val modeLabels = listOf(
+            getString(R.string.detection_mode_auto),
+            getString(R.string.detection_mode_manual)
+        )
+
+        val modeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modeLabels)
+        modeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerDetectionMode.adapter = modeAdapter
+        spinnerDetectionMode.setSelection(
+            modeValues.indexOf(settings.detectionMode).coerceAtLeast(0)
+        )
+        spinnerDetectionMode.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                settings.detectionMode = modeValues[position]
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
     }
 
     private fun setupCameraSpinners() {
@@ -132,8 +175,8 @@ class SettingsActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        // Aspect ratio spinner
-        val sizes = listOf("4:3", "16:9", "1:1")
+        // Aspect ratio spinner - CameraX only supports 4:3 and 16:9 here
+        val sizes = listOf("4:3", "16:9")
         val sizeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, sizes)
         sizeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinnerSize.adapter = sizeAdapter

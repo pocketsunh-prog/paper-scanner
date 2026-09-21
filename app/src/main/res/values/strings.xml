@@ -79,6 +79,8 @@
     <string name="select_language">Select Language</string>
     <string name="no_text_detected">No text detected</string>
     <string name="point_camera_at_text">Point camera at text</string>
+    <string name="ocr_original_label">ORIGINAL</string>
+    <string name="ocr_translated_label">TRANSLATED</string>
 
     <!-- Text to speech -->
     <string name="text_to_speech">Text to Speech</string>
@@ -107,4 +109,23 @@
     <string name="tts_nothing_to_paste">Clipboard is empty</string>
     <string name="read_aloud">Read Aloud (OCR → Voice)</string>
     <string name="speak_this_text">Speak</string>
+
+    <!-- Document detection settings -->
+    <string name="detection_settings_title">Document Detection</string>
+    <string name="detection_mode">Detection Mode</string>
+    <string name="detection_mode_hint">Auto follows the page corners automatically. Manual uses a rectangle you drag into place.</string>
+    <string name="detection_mode_auto">Auto</string>
+    <string name="detection_mode_manual">Manual</string>
+    <string name="detection_outline">Detected Page Outline</string>
+    <string name="detection_outline_hint">Highlight the page the scanner has found.</string>
+    <string name="detection_status">Detection Status Text</string>
+    <string name="detection_status_hint">Show the \'Document detected\' message on the camera screen.</string>
+    <string name="document_detected_orientation">Document detected · %1$s</string>
+    <string name="orientation_horizontal">horizontal page</string>
+    <string name="orientation_vertical">vertical page</string>
+    <string name="detection_toggle">Turn document detection on or off</string>
+    <string name="detection_on">Detection on</string>
+    <string name="detection_off">Detection off — full frame will be captured</string>
+    <string name="auto_capture_hint">Automatically capture when a document is detected.</string>
+    <string name="focus_area_hint">Show the focus area guide overlay.</string>
 </resources>

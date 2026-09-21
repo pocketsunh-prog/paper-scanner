@@ -7,6 +7,8 @@ import android.util.AttributeSet
 import android.view.View
 import android.view.animation.LinearInterpolator
 import com.paperscanner.processing.DetectionResult
+import com.paperscanner.processing.DocumentDetector
+import kotlin.math.max
 import kotlin.math.sqrt
 
 class ScannerOverlayView @JvmOverloads constructor(
@@ -71,6 +73,13 @@ class ScannerOverlayView @JvmOverloads constructor(
     private var statusText: String = "Point camera at a document"
     private var detected: Boolean = false
     private var ropePhase = 0f
+
+    // How the analysis frame maps onto this view
+    private var frameWidth = 0
+    private var frameHeight = 0
+    private var rotationDegrees = 0
+    private var showDetectionOutline = true
+    private var detectionActive = true
 
     // Mode: true = auto, false = manual
     var autoMode: Boolean = true
@@ -246,6 +255,60 @@ class ScannerOverlayView @JvmOverloads constructor(
         invalidate()
     }
 
+    fun setShowDetectionOutline(show: Boolean) {
+        showDetectionOutline = show
+        invalidate()
+    }
+
+    /**
+     * Turn the auto-detection visuals on or off. Manual mode keeps drawing its
+     * rectangle either way; with detection off the preview is left clean.
+     */
+    fun setDetectionActive(active: Boolean) {
+        detectionActive = active
+        invalidate()
+    }
+
+    /**
+     * Describe the analysis frame so detection coordinates can be placed correctly.
+     * [rotationDegrees] is the clockwise rotation that brings the frame upright.
+     */
+    fun setFrameInfo(width: Int, height: Int, rotationDegrees: Int) {
+        if (frameWidth == width && frameHeight == height && this.rotationDegrees == rotationDegrees) return
+        frameWidth = width
+        frameHeight = height
+        this.rotationDegrees = rotationDegrees
+        invalidate()
+    }
+
+    /**
+     * Map a point normalized against the analysis frame onto this view.
+     *
+     * The frame is first rotated upright, then scaled like the preview does
+     * (FILL_CENTER: uniform scale that covers the view, centred), so the outline
+     * lands on the page instead of being stretched across the screen.
+     */
+    private fun toViewPoint(nx: Float, ny: Float): Pair<Float, Float> {
+        val upright = DocumentDetector.toUpright(nx, ny, rotationDegrees)
+        val (uprightWidth, uprightHeight) =
+            DocumentDetector.uprightSize(frameWidth, frameHeight, rotationDegrees)
+
+        val viewWidth = width.toFloat()
+        val viewHeight = height.toFloat()
+
+        if (uprightWidth <= 0 || uprightHeight <= 0) {
+            return Pair(upright.first * viewWidth, upright.second * viewHeight)
+        }
+
+        val scale = max(viewWidth / uprightWidth, viewHeight / uprightHeight)
+        val scaledWidth = uprightWidth * scale
+        val scaledHeight = uprightHeight * scale
+        val offsetX = (viewWidth - scaledWidth) / 2f
+        val offsetY = (viewHeight - scaledHeight) / 2f
+
+        return Pair(offsetX + upright.first * scaledWidth, offsetY + upright.second * scaledHeight)
+    }
+
     fun reset() {
         detectionResult = null
         detected = false
@@ -270,21 +333,24 @@ class ScannerOverlayView @JvmOverloads constructor(
         if (!autoMode) {
             // MANUAL MODE: Show draggable rectangle
             drawManualMode(canvas, w, h)
-        } else if (bounds != null && detected) {
+        } else if (!detectionActive) {
+            // Detection switched off: leave the preview untouched
+            return
+        } else if (showDetectionOutline && bounds != null && detected) {
             // AUTO MODE: Show detected document
             if (corners != null && corners.size == 4) {
-                drawOverlayAroundPolygon(canvas, corners, w, h)
-                val pad = 10f
-                val tl = Pair(corners[0].first * w, corners[0].second * h)
-                val tr = Pair(corners[1].first * w, corners[1].second * h)
-                val br = Pair(corners[2].first * w, corners[2].second * h)
-                val bl = Pair(corners[3].first * w, corners[3].second * h)
-                drawRopeLoopCorners(canvas, tl, tr, br, bl, pad)
+                val points = corners.map { toViewPoint(it.first, it.second) }
+                drawOverlayAroundPolygon(canvas, points, w, h)
+                drawRopeLoopCorners(
+                    canvas, points[0], points[1], points[2], points[3], 10f
+                )
             } else {
-                val left = bounds.left * w
-                val top = bounds.top * h
-                val right = bounds.right * w
-                val bottom = bounds.bottom * h
+                val topLeft = toViewPoint(bounds.left, bounds.top)
+                val bottomRight = toViewPoint(bounds.right, bounds.bottom)
+                val left = topLeft.first
+                val top = topLeft.second
+                val right = bottomRight.first
+                val bottom = bottomRight.second
                 val path = Path().apply {
                     addRect(0f, 0f, w, top, Path.Direction.CW)
                     addRect(0f, top, left, bottom, Path.Direction.CW)
@@ -345,7 +411,7 @@ class ScannerOverlayView @JvmOverloads constructor(
         canvas.drawCircle(right, bottom, handleRadius, cornerKnotPaint)
     }
 
-    private fun drawOverlayAroundPolygon(canvas: Canvas, corners: List<Pair<Float, Float>>, w: Float, h: Float) {
+    private fun drawOverlayAroundPolygon(canvas: Canvas, points: List<Pair<Float, Float>>, w: Float, h: Float) {
         val path = Path()
         // Start from top-left corner
         path.moveTo(0f, 0f)
@@ -354,11 +420,11 @@ class ScannerOverlayView @JvmOverloads constructor(
         path.lineTo(0f, h)
         path.close()
 
-        // Cut out the document polygon
+        // Cut out the document polygon (points are already in view coordinates)
         val docPath = Path()
-        docPath.moveTo(corners[0].first * w, corners[0].second * h)
-        for (i in 1 until corners.size) {
-            docPath.lineTo(corners[i].first * w, corners[i].second * h)
+        docPath.moveTo(points[0].first, points[0].second)
+        for (i in 1 until points.size) {
+            docPath.lineTo(points[i].first, points[i].second)
         }
         docPath.close()
 

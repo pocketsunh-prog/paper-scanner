@@ -75,6 +75,27 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_TTS_AUTO_SPEAK, true)
         set(value) = prefs.edit().putBoolean(KEY_TTS_AUTO_SPEAK, value).apply()
 
+    // Document detection settings (edited on the Settings screen)
+    /** Quick on/off for document detection, toggled from the camera screen. */
+    var detectionEnabled: Boolean
+        get() = prefs.getBoolean(KEY_DETECTION_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_DETECTION_ENABLED, value).apply()
+
+    /** "AUTO" hugs the detected page corners, "MANUAL" uses the draggable rectangle. */
+    var detectionMode: String
+        get() = prefs.getString(KEY_DETECTION_MODE, "AUTO") ?: "AUTO"
+        set(value) = prefs.edit().putString(KEY_DETECTION_MODE, value).apply()
+
+    /** Draw the green outline around the detected page. */
+    var showDetectionOutline: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_DETECTION_OUTLINE, true)
+        set(value) = prefs.edit().putBoolean(KEY_SHOW_DETECTION_OUTLINE, value).apply()
+
+    /** Show the "Document detected" / "Point camera at a document" pill. */
+    var showDetectionStatus: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_DETECTION_STATUS, true)
+        set(value) = prefs.edit().putBoolean(KEY_SHOW_DETECTION_STATUS, value).apply()
+
     companion object {
         private const val KEY_JPEG_QUALITY = "jpeg_quality"
         private const val KEY_FILTER_MODE = "filter_mode"
@@ -91,5 +112,9 @@ class AppSettings(context: Context) {
         private const val KEY_TTS_RATE = "tts_speech_rate"
         private const val KEY_TTS_PITCH = "tts_pitch"
         private const val KEY_TTS_AUTO_SPEAK = "tts_auto_speak"
+        private const val KEY_DETECTION_MODE = "detection_mode"
+        private const val KEY_DETECTION_ENABLED = "detection_enabled"
+        private const val KEY_SHOW_DETECTION_OUTLINE = "show_detection_outline"
+        private const val KEY_SHOW_DETECTION_STATUS = "show_detection_status"
     }
 }

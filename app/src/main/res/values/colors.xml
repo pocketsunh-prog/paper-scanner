@@ -42,4 +42,8 @@
     <!-- Card and sheet backgrounds -->
     <color name="card_bg">#FFFFFFF2</color>
     <color name="sheet_bg">#FFFBF2</color>
+
+    <!-- Live OCR text panels (drawn over the camera preview) -->
+    <color name="realtime_panel">#B33E3A35</color>
+    <color name="realtime_panel_stroke">#66E8A87C</color>
 </resources>

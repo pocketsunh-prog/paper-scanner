@@ -23,11 +23,16 @@ import com.paperscanner.data.AppSettings
 import com.paperscanner.data.ProjectManager
 import com.paperscanner.data.ScanImage
 import com.paperscanner.processing.DocumentDetector
+import com.paperscanner.processing.DocumentOrientation
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import com.paperscanner.processing.ImageFilter
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.atan2
 import kotlin.math.max
 import kotlin.math.sqrt
 
@@ -38,7 +43,7 @@ class CameraActivity : AppCompatActivity() {
     private lateinit var btnCapture: Button
     private lateinit var btnFlash: ImageButton
     private lateinit var btnClose: ImageButton
-    private lateinit var btnAutoCapture: ToggleButton
+    private lateinit var btnDetect: ImageButton
     private lateinit var btnZoomIn: ImageButton
     private lateinit var btnZoomOut: ImageButton
     private lateinit var tvZoomLevel: TextView
@@ -54,6 +59,10 @@ class CameraActivity : AppCompatActivity() {
     private var projectId: String = ""
     private var flashEnabled = false
     private var autoCaptureEnabled = false
+    // Detection display options, configured on the Settings screen
+    private var showDetectionOutline = true
+    private var showDetectionStatus = true
+    private var detectionEnabled = true
     private val isCapturing = AtomicBoolean(false)
     private var lastAnalysisTime = 0L
 
@@ -83,7 +92,7 @@ class CameraActivity : AppCompatActivity() {
         btnCapture = findViewById(R.id.btn_capture)
         btnFlash = findViewById(R.id.btn_flash)
         btnClose = findViewById(R.id.btn_close)
-        btnAutoCapture = findViewById(R.id.btn_auto_capture)
+        btnDetect = findViewById(R.id.btn_detect)
         btnZoomIn = findViewById(R.id.btn_zoom_in)
         btnZoomOut = findViewById(R.id.btn_zoom_out)
         tvZoomLevel = findViewById(R.id.tv_zoom_level)
@@ -94,7 +103,19 @@ class CameraActivity : AppCompatActivity() {
         flashEnabled = settings.flashEnabled
         autoCaptureEnabled = settings.autoCapture
         updateFlashIcon()
-        btnAutoCapture.isChecked = autoCaptureEnabled
+
+        // Detection options live on the Settings screen
+        showDetectionOutline = settings.showDetectionOutline
+        showDetectionStatus = settings.showDetectionStatus
+        detectionEnabled = settings.detectionEnabled
+        overlayView.autoMode = settings.detectionMode != "MANUAL"
+        overlayView.setShowDetectionOutline(showDetectionOutline)
+        overlayView.setDetectionActive(detectionEnabled)
+        updateDetectButton()
+        tvStatus.visibility = if (showDetectionStatus) View.VISIBLE else View.GONE
+        if (!overlayView.autoMode) {
+            tvStatus.text = "Position rectangle over document"
+        }
 
         // Tap-to-capture: tap inside detected rectangle to capture
         overlayView.onTapToCapture = { captureImage() }
@@ -107,9 +128,27 @@ class CameraActivity : AppCompatActivity() {
             updateFlashIcon()
             camera?.cameraControl?.enableTorch(flashEnabled)
         }
-        btnAutoCapture.setOnCheckedChangeListener { _, isChecked ->
-            autoCaptureEnabled = isChecked
-            settings.autoCapture = isChecked
+
+        // Quick on/off for document detection
+        btnDetect.setOnClickListener {
+            detectionEnabled = !detectionEnabled
+            settings.detectionEnabled = detectionEnabled
+            updateDetectButton()
+            overlayView.setDetectionActive(detectionEnabled)
+
+            if (detectionEnabled) {
+                tvStatus.text = if (overlayView.autoMode) {
+                    getString(R.string.point_at_document)
+                } else {
+                    "Position rectangle over document"
+                }
+            } else {
+                lastDetectedBounds = null
+                lastDetectedCorners = null
+                overlayView.reset()
+                tvStatus.text = getString(R.string.detection_off)
+                Toast.makeText(this, R.string.detection_off, Toast.LENGTH_SHORT).show()
+            }
         }
 
         // Real-time OCR button
@@ -117,29 +156,6 @@ class CameraActivity : AppCompatActivity() {
         fabRealTimeOcr.setOnClickListener {
             startActivity(android.content.Intent(this, RealTimeOcrActivity::class.java))
         }
-
-        // Mode toggle (Auto / Manual)
-        val toggleMode = findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.toggle_mode)
-        val btnModeAuto = findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_mode_auto)
-        val btnModeManual = findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_mode_manual)
-
-        toggleMode.addOnButtonCheckedListener { _, checkedId, isChecked ->
-            if (isChecked) {
-                when (checkedId) {
-                    R.id.btn_mode_auto -> {
-                        overlayView.autoMode = true
-                        tvStatus.text = getString(R.string.point_at_document)
-                    }
-                    R.id.btn_mode_manual -> {
-                        overlayView.autoMode = false
-                        tvStatus.text = "Position rectangle over document"
-                    }
-                }
-                overlayView.invalidate()
-            }
-        }
-        // Start in auto mode
-        toggleMode.check(R.id.btn_mode_auto)
 
         // Zoom controls
         btnZoomIn.setOnClickListener { zoomBy(0.1f) }
@@ -166,13 +182,19 @@ class CameraActivity : AppCompatActivity() {
             val captureResolution = getCaptureResolution()
             val analysisResolution = getAnalysisResolution()
 
+            // All use cases share one aspect ratio. If they differ, the analysis frame
+            // shows a different field of view than the photo, and the detected
+            // rectangle would not line up with what gets cropped.
+            val aspectStrategy = aspectRatioStrategy()
+
             val preview = Preview.Builder()
                 .setResolutionSelector(
-                    androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
+                    ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(aspectStrategy)
                         .setResolutionStrategy(
-                            androidx.camera.core.resolutionselector.ResolutionStrategy(
+                            ResolutionStrategy(
                                 captureResolution,
-                                androidx.camera.core.resolutionselector.ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
+                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
                             )
                         )
                         .build()
@@ -183,11 +205,12 @@ class CameraActivity : AppCompatActivity() {
             imageCapture = ImageCapture.Builder()
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .setResolutionSelector(
-                    androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
+                    ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(aspectStrategy)
                         .setResolutionStrategy(
-                            androidx.camera.core.resolutionselector.ResolutionStrategy(
+                            ResolutionStrategy(
                                 captureResolution,
-                                androidx.camera.core.resolutionselector.ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
+                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
                             )
                         )
                         .build()
@@ -196,7 +219,17 @@ class CameraActivity : AppCompatActivity() {
                 .build()
 
             imageAnalysis = ImageAnalysis.Builder()
-                .setTargetResolution(analysisResolution)
+                .setResolutionSelector(
+                    ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(aspectStrategy)
+                        .setResolutionStrategy(
+                            ResolutionStrategy(
+                                analysisResolution,
+                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER
+                            )
+                        )
+                        .build()
+                )
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
                 .also { analysis ->
@@ -227,6 +260,20 @@ class CameraActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
+    /** Status pill text, including which way the detected page is lying. */
+    private fun detectionStatusText(orientation: DocumentOrientation): String {
+        val label = when (orientation) {
+            DocumentOrientation.HORIZONTAL -> getString(R.string.orientation_horizontal)
+            DocumentOrientation.VERTICAL -> getString(R.string.orientation_vertical)
+            DocumentOrientation.UNKNOWN -> null
+        }
+        return if (label == null) {
+            getString(R.string.document_detected)
+        } else {
+            getString(R.string.document_detected_orientation, label)
+        }
+    }
+
     private fun getCaptureResolution(): Size {
         return when (settings.cameraResolution) {
             "LOW" -> Size(1280, 720)      // 720p
@@ -236,9 +283,24 @@ class CameraActivity : AppCompatActivity() {
     }
 
     private fun getAnalysisResolution(): Size {
-        // Analysis always uses smaller resolution for performance
-        return Size(640, 480)
+        // Analysis uses a smaller resolution for performance, matching the capture ratio
+        return when (settings.pictureSize) {
+            "16:9" -> Size(640, 360)
+            else -> Size(640, 480)
+        }
     }
+
+    /**
+     * One aspect ratio for preview, analysis and capture, taken from the Aspect Ratio
+     * setting. Keeping them identical is what makes the detected rectangle line up
+     * with the photo that gets cropped. CameraX only exposes 4:3 and 16:9, so the
+     * "1:1" option falls back to 4:3 like it always effectively did.
+     */
+    private fun aspectRatioStrategy(): AspectRatioStrategy =
+        when (settings.pictureSize) {
+            "16:9" -> AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY
+            else -> AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
+        }
 
     private fun processFrame(imageProxy: ImageProxy) {
         val currentTime = System.currentTimeMillis()
@@ -248,26 +310,36 @@ class CameraActivity : AppCompatActivity() {
         }
         lastAnalysisTime = currentTime
 
-        try {
-            val buffer = imageProxy.planes[0].buffer
-            val bytes = ByteArray(buffer.remaining())
-            buffer.get(bytes)
+        // Detection switched off: nothing to analyse, just let the preview run
+        if (!detectionEnabled) {
+            imageProxy.close()
+            return
+        }
 
+        try {
+            val plane = imageProxy.planes[0]
             val width = imageProxy.width
             val height = imageProxy.height
             analysisWidth = width
             analysisHeight = height
 
-            val luminance = DocumentDetector.yuvToLuminance(bytes, width, height)
-            val result = DocumentDetector.detectDocument(luminance, width, height)
+            // Read the Y plane honouring its padding, otherwise the image shears
+            val luminance = DocumentDetector.yuvToLuminance(
+                plane.buffer, width, height, plane.rowStride, plane.pixelStride
+            )
+
+            val rotation = imageProxy.imageInfo.rotationDegrees
+            val result = DocumentDetector.detectDocument(luminance, width, height, rotation)
 
             runOnUiThread {
+                // Tell the overlay how the frame is rotated so the outline lines up
+                overlayView.setFrameInfo(width, height, rotation)
                 overlayView.updateDetection(result)
 
                 if (result.found) {
                     lastDetectedBounds = result.bounds
                     lastDetectedCorners = result.corners
-                    tvStatus.text = getString(R.string.document_detected)
+                    tvStatus.text = detectionStatusText(result.orientation)
                     tvStatus.setBackgroundResource(R.drawable.ghibli_button_primary)
                 } else {
                     lastDetectedBounds = null
@@ -291,8 +363,10 @@ class CameraActivity : AppCompatActivity() {
     }
 
     private fun captureImage() {
-        // In auto mode, require corner detection
-        if (overlayView.autoMode && (lastDetectedCorners == null || lastDetectedCorners?.size != 4)) {
+        // With detection on in auto mode we need a page rectangle to crop to
+        if (detectionEnabled && overlayView.autoMode &&
+            (lastDetectedCorners == null || lastDetectedCorners?.size != 4)
+        ) {
             Toast.makeText(this, "No document detected", Toast.LENGTH_SHORT).show()
             return
         }
@@ -359,10 +433,11 @@ class CameraActivity : AppCompatActivity() {
     }
 
     /**
-     * Crops to rectangle area only.
-     * Auto mode: perspective transform using detected corners.
-     * Manual mode: rectangle crop using manual overlay rectangle.
-     * Returns true if successful.
+     * Crops the captured photo down to the page.
+     *
+     * Auto mode: crops (and de-rotates) to exactly the detected rectangle.
+     * Manual mode: crops to the rectangle the user dragged into place.
+     * With detection off, the full frame is kept.
      */
     private fun cropAndSaveImage(imagePath: String): Boolean {
         try {
@@ -370,14 +445,16 @@ class CameraActivity : AppCompatActivity() {
 
             val cropped: Bitmap
 
-            if (overlayView.autoMode) {
-                // Auto mode: use detected corners for perspective transform
+            if (!detectionEnabled) {
+                // Detection off: keep the whole frame
+                cropped = bitmap
+            } else if (overlayView.autoMode) {
                 val corners = lastDetectedCorners
                 if (corners == null || corners.size != 4) {
                     bitmap.recycle()
                     return false
                 }
-                cropped = perspectiveCrop(bitmap, corners)
+                cropped = rectangleCrop(bitmap, corners)
             } else {
                 // Manual mode: use the manual rectangle overlay
                 val rect = overlayView.getManualRect()
@@ -394,15 +471,17 @@ class CameraActivity : AppCompatActivity() {
 
             // Apply color mode
             val colored = applyColorMode(cropped)
-            if (colored != cropped) cropped.recycle()
-            bitmap.recycle()
 
             // Save ONLY the inside rectangle area
             val fos = java.io.FileOutputStream(imagePath)
             colored.compress(Bitmap.CompressFormat.JPEG, settings.jpegQuality, fos)
             fos.flush()
             fos.close()
-            colored.recycle()
+
+            // Recycle every distinct bitmap once, whatever path we took above
+            linkedSetOf(colored, cropped, bitmap).forEach { candidate ->
+                if (!candidate.isRecycled) candidate.recycle()
+            }
             return true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -411,51 +490,45 @@ class CameraActivity : AppCompatActivity() {
     }
 
     /**
-     * Perspective transform crop: maps detected document corners to a clean rectangle.
-     * Result contains only the document area with no background.
+     * Crop the photo to exactly the detected rectangle, straightening it first when
+     * the rectangle is tilted. The output contains only what the outline covered.
      */
-    private fun perspectiveCrop(bitmap: Bitmap, corners: List<Pair<Float, Float>>): Bitmap {
-        // Map normalized corners to full image pixel coordinates
-        val tl = Pair(corners[0].first * bitmap.width, corners[0].second * bitmap.height)
-        val tr = Pair(corners[1].first * bitmap.width, corners[1].second * bitmap.height)
-        val br = Pair(corners[2].first * bitmap.width, corners[2].second * bitmap.height)
-        val bl = Pair(corners[3].first * bitmap.width, corners[3].second * bitmap.height)
+    private fun rectangleCrop(bitmap: Bitmap, corners: List<Pair<Float, Float>>): Bitmap {
+        // Map normalized corners onto the photo
+        val points = corners.map {
+            Pair(it.first * bitmap.width, it.second * bitmap.height)
+        }
+        val tl = points[0]
+        val tr = points[1]
+        val br = points[2]
+        val bl = points[3]
 
-        // Calculate output dimensions from edge distances
-        val widthTop = sqrt((tr.first - tl.first) * (tr.first - tl.first) + (tr.second - tl.second) * (tr.second - tl.second))
-        val widthBottom = sqrt((br.first - bl.first) * (br.first - bl.first) + (br.second - bl.second) * (br.second - bl.second))
-        val outputWidth = max(widthTop, widthBottom).toInt().coerceAtLeast(100)
+        fun distance(a: Pair<Float, Float>, b: Pair<Float, Float>): Float =
+            sqrt((b.first - a.first) * (b.first - a.first) + (b.second - a.second) * (b.second - a.second))
 
-        val heightLeft = sqrt((bl.first - tl.first) * (bl.first - tl.first) + (bl.second - tl.second) * (bl.second - tl.second))
-        val heightRight = sqrt((br.first - tr.first) * (br.first - tr.first) + (br.second - tr.second) * (br.second - tr.second))
-        val outputHeight = max(heightLeft, heightRight).toInt().coerceAtLeast(100)
+        val outputWidth = max(distance(tl, tr), distance(bl, br)).toInt().coerceAtLeast(1)
+        val outputHeight = max(distance(tl, bl), distance(tr, br)).toInt().coerceAtLeast(1)
 
-        // Create output bitmap and apply perspective transform
+        val centerX = (tl.first + tr.first + br.first + bl.first) / 4f
+        val centerY = (tl.second + tr.second + br.second + bl.second) / 4f
+        val angle = Math.toDegrees(
+            atan2((tr.second - tl.second).toDouble(), (tr.first - tl.first).toDouble())
+        ).toFloat()
+
         val output = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
-
-        val src = floatArrayOf(
-            tl.first, tl.second,
-            tr.first, tr.second,
-            br.first, br.second,
-            bl.first, bl.second
-        )
-
-        val dst = floatArrayOf(
-            0f, 0f,
-            outputWidth.toFloat(), 0f,
-            outputWidth.toFloat(), outputHeight.toFloat(),
-            0f, outputHeight.toFloat()
-        )
-
-        val matrix = android.graphics.Matrix()
-        matrix.setPolyToPoly(src, 0, dst, 0, 4)
-
         val paint = Paint().apply {
             isAntiAlias = true
             isFilterBitmap = true
         }
-        canvas.drawBitmap(bitmap, matrix, paint)
+
+        // Place the rectangle's centre at the output centre and align its axes
+        canvas.save()
+        canvas.translate(outputWidth / 2f, outputHeight / 2f)
+        canvas.rotate(-angle)
+        canvas.translate(-centerX, -centerY)
+        canvas.drawBitmap(bitmap, 0f, 0f, paint)
+        canvas.restore()
 
         return output
     }
@@ -472,6 +545,12 @@ class CameraActivity : AppCompatActivity() {
         btnFlash.setImageResource(
             if (flashEnabled) R.drawable.ic_flash else R.drawable.ic_flash_off
         )
+    }
+
+    /** Dim the detection button when detection is switched off. */
+    private fun updateDetectButton() {
+        btnDetect.alpha = if (detectionEnabled) 1f else 0.4f
+        btnDetect.background?.alpha = if (detectionEnabled) 255 else 90
     }
 
     private fun zoomBy(delta: Float) {

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Scan frame with a page inside -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M4,4h5v2H6v3H4V4zM15,4h5v5h-2V6h-3V4zM4,15h2v3h3v2H4v-5zM18,15h2v5h-5v-2h3v-3z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M8,8h8v8H8V8zM10,10v4h4v-4H10z" />
+</vector>
