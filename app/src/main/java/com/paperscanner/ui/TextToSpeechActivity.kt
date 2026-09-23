@@ -17,8 +17,12 @@ import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.paperscanner.R
 import com.paperscanner.data.AppSettings
+import com.paperscanner.data.SavedText
+import com.paperscanner.data.SavedTextStore
 import com.paperscanner.processing.SpeechHelper
 import com.paperscanner.processing.SpeakerOption
+import java.text.DateFormat
+import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -44,10 +48,12 @@ class TextToSpeechActivity : AppCompatActivity() {
 
     private lateinit var settings: AppSettings
     private lateinit var speech: SpeechHelper
+    private lateinit var savedTexts: SavedTextStore
 
     private lateinit var etInput: EditText
     private lateinit var tvStatus: TextView
     private lateinit var tvSpeaker: TextView
+    private lateinit var tvSavedLabel: TextView
     private lateinit var tvSpeedValue: TextView
     private lateinit var tvPitchValue: TextView
     private lateinit var seekSpeed: SeekBar
@@ -59,16 +65,21 @@ class TextToSpeechActivity : AppCompatActivity() {
     private var autoSpeakPending = false
     private var languageHint: String? = null
 
+    /** Row in the library the input currently belongs to, if it was saved or loaded. */
+    private var loadedId: Long? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_text_to_speech)
 
         settings = AppSettings(this)
         speech = SpeechHelper(this)
+        savedTexts = SavedTextStore(this)
 
         etInput = findViewById(R.id.et_speech_text)
         tvStatus = findViewById(R.id.tv_speech_status)
         tvSpeaker = findViewById(R.id.tv_current_speaker)
+        tvSavedLabel = findViewById(R.id.tv_saved_label)
         tvSpeedValue = findViewById(R.id.tv_speed_value)
         tvPitchValue = findViewById(R.id.tv_pitch_value)
         seekSpeed = findViewById(R.id.seek_speed)
@@ -126,10 +137,142 @@ class TextToSpeechActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn_clear_text).setOnClickListener {
             speech.stop()
             etInput.setText("")
+            loadedId = null
+            updateSavedLabel()
         }
+
+        findViewById<Button>(R.id.btn_save_text).setOnClickListener { saveCurrentText() }
+        findViewById<Button>(R.id.btn_load_text).setOnClickListener { showSavedTextLibrary() }
 
         switchAutoRead.setOnCheckedChangeListener { _, checked ->
             settings.ttsAutoSpeak = checked
+        }
+    }
+
+    // --------------------------------------------------------- saved library
+
+    /** Save the input, overwriting the loaded record when there is one. */
+    private fun saveCurrentText() {
+        val text = etInput.text.toString().trim()
+        if (text.isEmpty()) {
+            Toast.makeText(this, R.string.tts_empty_text, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val existingId = loadedId
+        val id = try {
+            savedTexts.save(existingId, text)
+        } catch (e: Exception) {
+            Toast.makeText(this, R.string.tts_save_failed, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        loadedId = id
+        updateSavedLabel()
+        Toast.makeText(
+            this,
+            if (existingId == null) R.string.tts_save_new else R.string.tts_save_updated,
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    /** List everything in the library; tap to load, long-press to delete. */
+    private fun showSavedTextLibrary() {
+        val saved = try {
+            savedTexts.list()
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+        if (saved.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.tts_library_title)
+                .setMessage(R.string.tts_library_empty)
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+            return
+        }
+
+        val formatter = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+        val adapter = object : ArrayAdapter<SavedText>(
+            this, android.R.layout.simple_list_item_2, android.R.id.text1, saved
+        ) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getView(position, convertView, parent)
+                val item = saved[position]
+                view.findViewById<TextView>(android.R.id.text1).text = item.title
+                view.findViewById<TextView>(android.R.id.text2).text = getString(
+                    R.string.tts_library_entry_detail,
+                    formatter.format(Date(item.updatedAt)),
+                    item.body.length
+                )
+                return view
+            }
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.tts_library_title)
+            .setAdapter(adapter) { _, which -> loadSavedText(saved[which]) }
+            .setNeutralButton(R.string.cancel, null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.listView.setOnItemLongClickListener { _, _, position, _ ->
+                confirmDelete(saved[position])
+                true
+            }
+        }
+        dialog.show()
+    }
+
+    private fun loadSavedText(item: SavedText) {
+        speech.stop()
+        etInput.setText(item.body)
+        etInput.setSelection(etInput.text.length)
+        loadedId = item.id
+        updateSavedLabel()
+        Toast.makeText(
+            this, getString(R.string.tts_loaded, item.title), Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    private fun confirmDelete(item: SavedText) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.tts_delete_title)
+            .setMessage(getString(R.string.tts_delete_message, item.title))
+            .setPositiveButton(R.string.delete) { _, _ ->
+                val removed = try {
+                    savedTexts.delete(item.id)
+                } catch (e: Exception) {
+                    false
+                }
+                if (removed) {
+                    if (loadedId == item.id) loadedId = null
+                    updateSavedLabel()
+                    Toast.makeText(this, R.string.tts_deleted, Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun updateSavedLabel() {
+        val id = loadedId
+        if (id == null) {
+            tvSavedLabel.text = getString(R.string.tts_not_saved)
+            return
+        }
+
+        val record = try {
+            savedTexts.get(id)
+        } catch (e: Exception) {
+            null
+        }
+
+        tvSavedLabel.text = if (record == null) {
+            getString(R.string.tts_not_saved)
+        } else {
+            getString(R.string.tts_saved_as, record.title)
         }
     }
 
@@ -284,5 +427,6 @@ class TextToSpeechActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         speech.shutdown()
+        savedTexts.close()
     }
 }

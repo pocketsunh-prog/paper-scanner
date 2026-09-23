@@ -128,4 +128,22 @@
     <string name="detection_off">Detection off — full frame will be captured</string>
     <string name="auto_capture_hint">Automatically capture when a document is detected.</string>
     <string name="focus_area_hint">Show the focus area guide overlay.</string>
+
+    <!-- Saved text library -->
+    <string name="tts_save">Save</string>
+    <string name="tts_load">Load</string>
+    <string name="tts_not_saved">Not saved yet</string>
+    <string name="tts_saved_as">Saved: %1$s</string>
+    <string name="tts_save_new">Saved to library</string>
+    <string name="tts_save_updated">Updated in library</string>
+    <string name="tts_save_failed">Could not save the text</string>
+    <string name="tts_library_title">Saved texts</string>
+    <string name="tts_library_empty">Nothing saved yet.\nType or paste some text, then tap Save.</string>
+    <string name="tts_loaded">Loaded: %1$s</string>
+    <string name="tts_delete_title">Delete saved text?</string>
+    <string name="tts_delete_message">Remove “%1$s” from the library?</string>
+    <string name="tts_deleted">Deleted</string>
+    <string name="tts_untitled">Untitled</string>
+    <string name="tts_library_hint">Tap to load, long-press to delete.</string>
+    <string name="tts_library_entry_detail">%1$s · %2$d characters</string>
 </resources>

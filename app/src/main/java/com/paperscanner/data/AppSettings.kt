@@ -55,9 +55,10 @@ class AppSettings(context: Context) {
         get() = prefs.getString(KEY_TTS_VOICE, null)
         set(value) = prefs.edit().putString(KEY_TTS_VOICE, value).apply()
 
-    /** BCP-47 tag of the preferred speaking language, e.g. "en-US". */
+    /** BCP-47 tag of the preferred speaking language. Defaults to Hong Kong Cantonese. */
     var ttsLanguageTag: String
-        get() = prefs.getString(KEY_TTS_LANGUAGE, "") ?: ""
+        get() = prefs.getString(KEY_TTS_LANGUAGE, DEFAULT_TTS_LANGUAGE_TAG)
+            ?: DEFAULT_TTS_LANGUAGE_TAG
         set(value) = prefs.edit().putString(KEY_TTS_LANGUAGE, value).apply()
 
     /** Speech rate multiplier, 0.5x..2.0x */
@@ -97,6 +98,9 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_SHOW_DETECTION_STATUS, value).apply()
 
     companion object {
+        /** Speaker used until the user picks another one: Hong Kong (Cantonese). */
+        const val DEFAULT_TTS_LANGUAGE_TAG = "zh-HK"
+
         private const val KEY_JPEG_QUALITY = "jpeg_quality"
         private const val KEY_FILTER_MODE = "filter_mode"
         private const val KEY_AUTO_CAPTURE = "auto_capture"

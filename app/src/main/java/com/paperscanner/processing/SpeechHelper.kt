@@ -43,6 +43,52 @@ data class SpeakerOption(
 }
 
 /**
+ * Ranks how well a voice matches the locale we want to speak.
+ *
+ * Higher is better and 0 means no relation at all, so callers can fall back to the
+ * device default when nothing matches.
+ *
+ * Matching the *locale* outranks preferring an offline voice on purpose. Cantonese and
+ * Mandarin are not mutually intelligible, so for a Hong Kong default a Cantonese voice
+ * that needs a download must still beat an installed Mandarin one.
+ *
+ * Cantonese is tagged `yue` by some engines and `zh` by others, so the two are treated
+ * as one family - that is what lets the Hong Kong default pick whichever the device
+ * actually has.
+ */
+internal fun voiceMatchScore(
+    voiceLanguage: String,
+    voiceCountry: String,
+    needsNetwork: Boolean,
+    targetLanguage: String,
+    targetCountry: String
+): Int {
+    val sameLanguage = voiceLanguage.equals(targetLanguage, ignoreCase = true)
+    val sameCountry = voiceCountry.isNotEmpty() &&
+        voiceCountry.equals(targetCountry, ignoreCase = true)
+    val relatedLanguage = isChineseFamily(voiceLanguage, targetLanguage)
+
+    var score = when {
+        sameLanguage && sameCountry -> 8
+        relatedLanguage && sameCountry -> 7
+        sameLanguage -> 4
+        relatedLanguage -> 3
+        else -> return 0
+    }
+
+    if (!needsNetwork) score += 1
+
+    return score
+}
+
+/** True when both tags name a Chinese variety (Mandarin, Cantonese, ...). */
+private fun isChineseFamily(first: String, second: String): Boolean {
+    val chineseVarieties = setOf("zh", "yue", "cmn", "wuu", "hak", "nan")
+    return first.lowercase(Locale.ROOT) in chineseVarieties &&
+        second.lowercase(Locale.ROOT) in chineseVarieties
+}
+
+/**
  * Text-to-speech wrapper around the platform TTS engine.
  *
  * Talks through [onReady], [onSpeakingChanged] and [onError]; all callbacks are
@@ -54,6 +100,12 @@ class SpeechHelper(context: Context) {
     companion object {
         private const val TAG = "SpeechHelper"
         private const val FALLBACK_MAX_LENGTH = 3800
+
+        /** The tag stored for the default speaker. */
+        const val HK_LANGUAGE_TAG = "zh-HK"
+
+        /** Default speaker: Cantonese as used in Hong Kong. */
+        val DEFAULT_LOCALE: Locale = Locale.forLanguageTag(HK_LANGUAGE_TAG)
 
         /** Map an OCR language label ("chinese", "ja", ...) to a speaking locale. */
         fun localeForOcrLanguage(language: String): Locale? =
@@ -295,27 +347,43 @@ class SpeechHelper(context: Context) {
     }
 
     private fun voiceForLocale(locale: Locale): Voice? {
-        val pool = availableVoices().filter { it.locale.language == locale.language }
-        if (pool.isEmpty()) return null
-        return pool.sortedWith(
-            compareBy<Voice>(
-                { if (it.locale.country.equals(locale.country, ignoreCase = true)) 0 else 1 },
-                { if (it.isNetworkConnectionRequired) 1 else 0 },
-                { -it.quality },
-                { it.name }
+        val voices = availableVoices()
+        if (voices.isEmpty()) return null
+
+        val best = voices
+            .map { voice ->
+                voice to voiceMatchScore(
+                    voiceLanguage = voice.locale.language,
+                    voiceCountry = voice.locale.country,
+                    needsNetwork = voice.isNetworkConnectionRequired,
+                    targetLanguage = locale.language,
+                    targetCountry = locale.country
+                )
+            }
+            .filter { it.second > 0 }
+            .sortedWith(
+                compareByDescending<Pair<Voice, Int>> { it.second }
+                    .thenByDescending { it.first.quality }
+                    .thenBy { it.first.name }
             )
-        ).firstOrNull()
+            .firstOrNull()
+
+        return best?.first
     }
 
     private fun defaultVoice(): Voice? = voiceForLocale(targetLocale())
 
+    /**
+     * The speaker to use when the user has not chosen one. Hong Kong (Cantonese) is the
+     * default; [HK_LANGUAGE_TAG] is used unless something else has been stored.
+     */
     private fun targetLocale(): Locale {
         val tag = settings.ttsLanguageTag
         if (tag.isNotEmpty()) {
             val fromTag = Locale.forLanguageTag(tag)
             if (fromTag.language.isNotEmpty()) return fromTag
         }
-        return Locale.getDefault()
+        return DEFAULT_LOCALE
     }
 
     // ------------------------------------------------------------- playback
