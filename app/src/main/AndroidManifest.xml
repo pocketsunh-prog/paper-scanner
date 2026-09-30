@@ -41,6 +41,10 @@
         <activity
             android:name=".ui.TextToSpeechActivity"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.PhotoViewerActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:theme="@style/Theme.PaperScanner.Fullscreen" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

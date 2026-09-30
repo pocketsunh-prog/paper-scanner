@@ -16,6 +16,8 @@
             style="@style/Ghibli.Toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
+            app:subtitle="@string/image_tap_hint"
+            app:subtitleTextColor="@color/white"
             app:title="@string/app_name"
             app:titleTextColor="@color/white" />
 

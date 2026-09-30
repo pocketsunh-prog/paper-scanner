@@ -62,7 +62,8 @@ class ImageEditorActivity : AppCompatActivity() {
         btnExport = findViewById(R.id.fab_export_pdf)
 
         adapter = ImageAdapter(
-            onImageClick = { scanImage -> showImageOptions(scanImage) },
+            onImageClick = { scanImage -> openPhotoViewer(scanImage) },
+            onImageLongClick = { scanImage -> showImageOptions(scanImage) },
             onImageDelete = { scanImage -> deleteImage(scanImage) }
         )
 
@@ -115,8 +116,20 @@ class ImageEditorActivity : AppCompatActivity() {
         recyclerView.visibility = if (images.isEmpty()) View.GONE else View.VISIBLE
     }
 
+    /** Show a photo full screen, opening on the page that was tapped. */
+    private fun openPhotoViewer(scanImage: ScanImage) {
+        val index = project?.images?.indexOfFirst { it.id == scanImage.id } ?: -1
+        if (index < 0) return
+
+        val intent = Intent(this, PhotoViewerActivity::class.java)
+        intent.putExtra(PhotoViewerActivity.EXTRA_PROJECT_ID, projectId)
+        intent.putExtra(PhotoViewerActivity.EXTRA_INDEX, index)
+        startActivity(intent)
+    }
+
     private fun showImageOptions(scanImage: ScanImage) {
         val options = arrayOf(
+            getString(R.string.view_photo),
             "OCR (Extract Text)",
             getString(R.string.read_aloud),
             getString(R.string.black_white),
@@ -132,15 +145,16 @@ class ImageEditorActivity : AppCompatActivity() {
             .setTitle("Image Options")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> showOcrLanguageDialog(scanImage)
-                    1 -> showOcrLanguageDialog(scanImage, speakAfter = true)
-                    2 -> applyFilter(scanImage, ImageFilterMode.BLACK_WHITE)
-                    3 -> applyFilter(scanImage, ImageFilterMode.GRAYSCALE)
-                    4 -> applyFilter(scanImage, ImageFilterMode.COLOR)
-                    5 -> rotateImage(scanImage)
-                    6 -> enhanceImage(scanImage)
-                    7 -> saveImage(scanImage)
-                    8 -> deleteImage(scanImage)
+                    0 -> openPhotoViewer(scanImage)
+                    1 -> showOcrLanguageDialog(scanImage)
+                    2 -> showOcrLanguageDialog(scanImage, speakAfter = true)
+                    3 -> applyFilter(scanImage, ImageFilterMode.BLACK_WHITE)
+                    4 -> applyFilter(scanImage, ImageFilterMode.GRAYSCALE)
+                    5 -> applyFilter(scanImage, ImageFilterMode.COLOR)
+                    6 -> rotateImage(scanImage)
+                    7 -> enhanceImage(scanImage)
+                    8 -> saveImage(scanImage)
+                    9 -> deleteImage(scanImage)
                 }
             }
             .show()
@@ -520,6 +534,7 @@ class ImageEditorActivity : AppCompatActivity() {
 
     inner class ImageAdapter(
         private val onImageClick: (ScanImage) -> Unit,
+        private val onImageLongClick: (ScanImage) -> Unit,
         private val onImageDelete: (ScanImage) -> Unit
     ) : RecyclerView.Adapter<ImageAdapter.ViewHolder>() {
 
@@ -561,7 +576,12 @@ class ImageEditorActivity : AppCompatActivity() {
 
             holder.filterLabel.text = scanImage.filterMode.name
             holder.pageNumber.text = "${position + 1}"
+            // Tap opens the photo, long-press keeps the edit options reachable
             holder.itemView.setOnClickListener { onImageClick(scanImage) }
+            holder.itemView.setOnLongClickListener {
+                onImageLongClick(scanImage)
+                true
+            }
         }
 
         private fun loadThumbnail(path: String, rotation: Int): Bitmap? {
